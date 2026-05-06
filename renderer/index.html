@@ -1,0 +1,1346 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Soundboard</title>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700;800&family=Outfit:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --bg-base:    #0a0a0f;
+  --bg-surface: #12121a;
+  --bg-card:    #1a1a25;
+  --bg-raised:  #22222f;
+  --bg-hover:   #2a2a38;
+  --accent:     #00e676;
+  --accent-dim: #00a854;
+  --accent-glow: rgba(0, 230, 118, 0.15);
+  --danger:     #ff1744;
+  --danger-dim: #d50000;
+  --text-1:     #e8e8f0;
+  --text-2:     #8888a0;
+  --text-3:     #55556a;
+  --border:     #2a2a38;
+  --border-light:#3a3a4a;
+  --radius:     10px;
+  --radius-lg:  16px;
+  --font-mono:  'JetBrains Mono', 'Consolas', monospace;
+  --font-body:  'Outfit', sans-serif;
+  --shadow-drop: 0 4px 24px rgba(0,0,0,0.5);
+  --shadow-glow: 0 0 20px var(--accent-glow);
+}
+
+html, body {
+  height: 100%;
+  background: var(--bg-base);
+  color: var(--text-1);
+  font-family: var(--font-body);
+  font-size: 14px;
+  overflow: hidden;
+  user-select: none;
+}
+
+::-webkit-scrollbar { width: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: var(--text-3); }
+
+/* ═══ LAYOUT ═══ */
+#app {
+  display: grid;
+  grid-template-rows: 42px 1fr 46px;
+  grid-template-columns: 170px 1fr;
+  grid-template-areas: "topbar topbar" "sidebar main" "bottom bottom";
+  height: 100vh;
+}
+
+/* ═══ TOPBAR ═══ */
+#topbar {
+  grid-area: topbar;
+  background: var(--bg-surface);
+  border-bottom: 1px solid var(--border);
+  display: flex; align-items: center;
+  padding: 0 12px; gap: 10px;
+  -webkit-app-region: drag;
+  z-index: 10;
+}
+#topbar > * { -webkit-app-region: no-drag; }
+
+.win-btns { display: flex; gap: 0; margin-right: 8px; }
+.win-btn {
+  width: 36px; height: 28px;
+  border: none; background: none;
+  display: flex; align-items: center; justify-content: center;
+  cursor: pointer; transition: background 0.12s;
+}
+.win-btn svg { width: 14px; height: 14px; stroke: var(--text-2); stroke-width: 1.5; fill: none; }
+.win-btn:hover { background: var(--bg-hover); }
+.win-btn:hover svg { stroke: var(--text-1); }
+.win-btn.close:hover { background: var(--danger); }
+.win-btn.close:hover svg { stroke: #fff; }
+
+.logo {
+  font-family: var(--font-mono); font-weight: 800; font-size: 13px;
+  color: var(--accent); letter-spacing: 1.5px; white-space: nowrap;
+}
+.topbar-spacer { flex: 1; }
+
+.device-group { display: flex; align-items: center; gap: 5px; }
+.device-group label {
+  font-family: var(--font-mono); font-size: 10px; color: var(--text-3);
+  text-transform: uppercase; letter-spacing: 0.5px;
+}
+.device-select {
+  background: var(--bg-card); border: 1px solid var(--border);
+  border-radius: 5px; color: var(--text-1);
+  font-family: var(--font-mono); font-size: 10px;
+  padding: 3px 6px; max-width: 240px; outline: none; cursor: pointer;
+}
+.device-select:focus { border-color: var(--accent); }
+.device-select option { background: var(--bg-card); color: var(--text-1); }
+
+.vol-group { display: flex; align-items: center; gap: 5px; }
+.vol-group label { font-family: var(--font-mono); font-size: 10px; color: var(--text-3); }
+.vol-slider {
+  -webkit-appearance: none; width: 80px; height: 3px;
+  background: var(--border); border-radius: 2px; outline: none; cursor: pointer;
+}
+.vol-slider::-webkit-slider-thumb {
+  -webkit-appearance: none; width: 12px; height: 12px;
+  background: var(--accent); border-radius: 50%; cursor: pointer;
+  box-shadow: 0 0 6px var(--accent-glow);
+}
+
+.stop-btn {
+  background: var(--danger); border: none; color: #fff;
+  font-family: var(--font-mono); font-weight: 700; font-size: 10px;
+  padding: 5px 12px; border-radius: 5px; cursor: pointer;
+  transition: background 0.15s;
+}
+.stop-btn:hover { background: var(--danger-dim); }
+
+/* ═══ SIDEBAR ═══ */
+#sidebar {
+  grid-area: sidebar; background: var(--bg-surface);
+  border-right: 1px solid var(--border);
+  display: flex; flex-direction: column; overflow: hidden;
+}
+.sidebar-title {
+  font-family: var(--font-mono); font-weight: 700; font-size: 11px;
+  color: var(--text-3); text-transform: uppercase; letter-spacing: 1px;
+  padding: 12px 12px 6px;
+}
+.sidebar-buttons { flex: 1; overflow-y: auto; padding: 4px 8px; display: flex; flex-direction: column; gap: 6px; }
+.sidebar-empty {
+  font-family: var(--font-mono); font-size: 10px; color: var(--text-3);
+  padding: 10px 4px; line-height: 1.5;
+}
+
+/* ═══ MAIN ═══ */
+#main {
+  grid-area: main; overflow-y: auto; padding: 14px 18px;
+  display: flex; flex-direction: column; gap: 14px;
+}
+
+/* ═══ BOTTOM BAR ═══ */
+#bottombar {
+  grid-area: bottom; background: var(--bg-surface);
+  border-top: 1px solid var(--border);
+  display: flex; align-items: center; padding: 0 14px; gap: 8px;
+}
+.bb-btn {
+  border: none; font-family: var(--font-mono); font-weight: 600; font-size: 11px;
+  padding: 6px 14px; border-radius: 18px; cursor: pointer; transition: all 0.15s;
+}
+.bb-btn.primary { background: var(--accent); color: #000; }
+.bb-btn.primary:hover { background: var(--accent-dim); }
+.bb-btn.secondary { background: var(--bg-card); color: var(--text-1); border: 1px solid var(--border); }
+.bb-btn.secondary:hover { background: var(--bg-hover); border-color: var(--accent); color: var(--accent); }
+
+/* ═══ SOUND PUCK ═══ */
+.sound-puck {
+  display: flex; flex-direction: column; align-items: center; gap: 4px;
+  padding: 10px 6px 7px; border-radius: var(--radius);
+  background: var(--bg-card); cursor: pointer; transition: all 0.15s;
+  width: 84px; position: relative;
+}
+.sound-puck:hover { background: var(--bg-raised); transform: translateY(-1px); }
+.sound-puck:active { transform: translateY(1px); }
+
+.sound-puck.downloading { opacity: 0.35; pointer-events: none; filter: grayscale(0.5); }
+.sound-puck.downloading .puck-label { animation: blink 1s ease-in-out infinite; }
+@keyframes blink { 0%,100% { opacity: 1; } 50% { opacity: 0.3; } }
+
+.sound-puck .fav-star {
+  position: absolute; top: 3px; right: 5px;
+  font-size: 10px; color: #ffd600;
+  filter: drop-shadow(0 0 2px rgba(255,214,0,0.5));
+  display: none;
+}
+.sound-puck.favorited .fav-star { display: block; }
+
+.puck-circle {
+  width: 46px; height: 30px; border-radius: 15px;
+  position: relative; overflow: hidden;
+  box-shadow: 0 3px 0 rgba(0,0,0,0.4); transition: box-shadow 0.1s;
+}
+.sound-puck:active .puck-circle { box-shadow: 0 1px 0 rgba(0,0,0,0.4); }
+.puck-circle::before {
+  content: ''; position: absolute; top: 0; left: 0; right: 0; height: 50%;
+  background: linear-gradient(180deg, rgba(255,255,255,0.2) 0%, transparent 100%);
+  border-radius: 15px 15px 0 0;
+}
+
+.puck-label {
+  font-family: var(--font-mono); font-size: 9px; color: var(--text-2);
+  text-align: center; max-width: 78px; overflow: hidden;
+  text-overflow: ellipsis; white-space: nowrap;
+}
+
+.sound-puck.playing .puck-circle {
+  box-shadow: 0 0 12px currentColor;
+  animation: pulse-glow 0.6s ease-in-out infinite alternate;
+}
+.sound-puck.playing {
+  outline: 2px solid var(--cat-color, var(--accent));
+  outline-offset: -1px;
+  border-radius: var(--radius);
+}
+@keyframes pulse-glow { from { box-shadow: 0 0 8px currentColor; } to { box-shadow: 0 0 18px currentColor; } }
+
+/* ═══ CATEGORY ═══ */
+.category-frame {
+  border: 2px solid var(--cat-color, var(--border));
+  border-radius: var(--radius-lg); background: var(--bg-surface);
+  overflow: hidden; transition: border-color 0.2s;
+}
+.category-header {
+  display: flex; align-items: center; padding: 9px 14px; gap: 8px; cursor: context-menu;
+}
+.category-dot {
+  width: 9px; height: 9px; border-radius: 50%;
+  background: var(--cat-color); box-shadow: 0 0 6px var(--cat-color); flex-shrink: 0;
+}
+.category-name {
+  font-family: var(--font-mono); font-weight: 700; font-size: 12px;
+  color: var(--cat-color); letter-spacing: 0.5px;
+}
+.category-count {
+  font-family: var(--font-mono); font-size: 9px; color: var(--text-3); margin-left: auto;
+}
+.category-grid {
+  display: flex; flex-wrap: wrap; gap: 5px;
+  padding: 4px 12px 12px; min-height: 56px;
+}
+.category-empty {
+  font-family: var(--font-mono); font-size: 10px; color: var(--text-3);
+  padding: 10px 0; width: 100%; text-align: center;
+}
+
+/* ═══ CONTEXT MENU ═══ */
+.ctx-menu {
+  position: fixed; z-index: 999; background: var(--bg-raised);
+  border: 1px solid var(--border-light); border-radius: 8px;
+  padding: 4px 0; min-width: 170px; box-shadow: var(--shadow-drop); display: none;
+}
+.ctx-menu.show { display: block; }
+.ctx-item {
+  display: block; width: 100%; padding: 6px 14px;
+  font-family: var(--font-mono); font-size: 11px;
+  color: var(--text-1); background: none; border: none;
+  text-align: left; cursor: pointer;
+}
+.ctx-item:hover { background: var(--bg-hover); color: var(--accent); }
+.ctx-item.danger { color: var(--danger); }
+.ctx-item.danger:hover { background: var(--bg-hover); color: var(--danger); }
+.ctx-sep { height: 1px; background: var(--border); margin: 4px 0; }
+
+/* ═══ MODAL ═══ */
+.modal-overlay {
+  position: fixed; inset: 0; background: rgba(0,0,0,0.65);
+  backdrop-filter: blur(4px); z-index: 100;
+  display: flex; align-items: center; justify-content: center;
+  animation: fadeIn 0.15s ease;
+}
+@keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+
+.modal {
+  background: var(--bg-surface); border: 1px solid var(--border);
+  border-radius: var(--radius-lg); padding: 22px; width: 460px;
+  max-height: 90vh; overflow-y: auto;
+  box-shadow: var(--shadow-drop), var(--shadow-glow);
+  animation: slideUp 0.2s ease;
+}
+@keyframes slideUp { from { transform: translateY(20px); opacity: 0; } to { transform: none; opacity: 1; } }
+
+.modal h2 {
+  font-family: var(--font-mono); font-weight: 700; font-size: 15px;
+  color: var(--accent); margin-bottom: 14px;
+}
+.modal-field { margin-bottom: 12px; }
+.modal-field label {
+  display: block; font-family: var(--font-mono); font-size: 10px; font-weight: 600;
+  color: var(--text-2); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px;
+}
+.modal-field input[type="text"],
+.modal-field select {
+  width: 100%; background: var(--bg-card); border: 1px solid var(--border);
+  border-radius: 6px; color: var(--text-1);
+  font-family: var(--font-mono); font-size: 12px;
+  padding: 7px 10px; outline: none;
+}
+.modal-field input:focus, .modal-field select:focus { border-color: var(--accent); }
+
+.modal-field .input-row { display: flex; gap: 6px; }
+.modal-field .input-row input { flex: 1; }
+.modal-field .input-row button {
+  background: var(--bg-raised); border: 1px solid var(--border);
+  border-radius: 6px; color: var(--accent);
+  font-family: var(--font-mono); font-size: 11px;
+  padding: 7px 12px; cursor: pointer; white-space: nowrap;
+}
+.modal-field .input-row button:hover { background: var(--bg-hover); }
+
+/* volume + gain row */
+.vol-gain-row { display: flex; gap: 12px; align-items: flex-end; }
+.vol-gain-row .modal-field { flex: 1; margin-bottom: 0; }
+.mini-slider {
+  -webkit-appearance: none; width: 100%; height: 3px;
+  background: var(--border); border-radius: 2px; outline: none; cursor: pointer;
+}
+.mini-slider::-webkit-slider-thumb {
+  -webkit-appearance: none; width: 10px; height: 10px;
+  background: var(--accent); border-radius: 50%; cursor: pointer;
+}
+.gain-row { display: flex; align-items: center; gap: 4px; }
+.gain-btn {
+  width: 24px; height: 24px; border-radius: 4px;
+  background: var(--bg-card); border: 1px solid var(--border);
+  color: var(--accent); font-family: var(--font-mono); font-size: 14px;
+  display: flex; align-items: center; justify-content: center;
+  cursor: pointer; transition: all 0.1s; line-height: 1;
+}
+.gain-btn:hover { background: var(--bg-hover); }
+.gain-val {
+  font-family: var(--font-mono); font-size: 11px; color: var(--text-1);
+  min-width: 52px; text-align: center;
+  background: var(--bg-card); border: 1px solid var(--border); border-radius: 4px;
+  padding: 2px 4px; outline: none; width: 64px;
+}
+.gain-val:focus { border-color: var(--accent); }
+
+.color-options { display: flex; gap: 6px; flex-wrap: wrap; }
+.color-opt {
+  width: 26px; height: 26px; border-radius: 50%;
+  border: 2px solid transparent; cursor: pointer; transition: all 0.15s; position: relative;
+}
+.color-opt:hover { transform: scale(1.15); }
+.color-opt.selected { border-color: #fff; box-shadow: 0 0 8px currentColor; }
+.color-opt.selected::after {
+  content: '\2713'; position: absolute; inset: 0;
+  display: flex; align-items: center; justify-content: center;
+  color: #fff; font-size: 11px; font-weight: bold;
+  text-shadow: 0 1px 2px rgba(0,0,0,0.6);
+}
+
+/* keybind recorder */
+.keybind-box {
+  width: 100%; background: var(--bg-card); border: 1px solid var(--border);
+  border-radius: 6px; color: var(--text-2);
+  font-family: var(--font-mono); font-size: 12px;
+  padding: 7px 10px; cursor: pointer; transition: all 0.15s;
+  text-align: center;
+}
+.keybind-box:hover { border-color: var(--text-3); }
+.keybind-box.listening {
+  border-color: var(--accent); color: var(--accent);
+  animation: border-pulse 1s ease-in-out infinite alternate;
+}
+@keyframes border-pulse {
+  from { box-shadow: 0 0 0 rgba(0,230,118,0); }
+  to   { box-shadow: 0 0 8px rgba(0,230,118,0.3); }
+}
+.keybind-clear {
+  font-size: 9px; color: var(--text-3); margin-top: 3px;
+  cursor: pointer; font-family: var(--font-mono);
+}
+.keybind-clear:hover { color: var(--danger); }
+
+.modal-actions {
+  display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px;
+}
+.modal-actions button {
+  font-family: var(--font-mono); font-weight: 600; font-size: 12px;
+  padding: 7px 16px; border-radius: 8px; border: none; cursor: pointer; transition: all 0.15s;
+}
+.modal-actions .save-btn { background: var(--accent); color: #000; }
+.modal-actions .save-btn:hover { background: var(--accent-dim); }
+.modal-actions .cancel-btn { background: var(--bg-card); color: var(--text-2); border: 1px solid var(--border); }
+.modal-actions .cancel-btn:hover { background: var(--bg-hover); color: var(--text-1); }
+
+/* noise */
+#app::after {
+  content: ''; position: fixed; inset: 0; pointer-events: none; opacity: 0.025;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  background-size: 128px 128px; z-index: 9999;
+}
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="topbar">
+    <div class="win-btns">
+      <button class="win-btn close" id="winClose" title="Close">
+        <svg viewBox="0 0 14 14"><line x1="2" y1="2" x2="12" y2="12"/><line x1="12" y1="2" x2="2" y2="12"/></svg>
+      </button>
+      <button class="win-btn" id="winMin" title="Minimize">
+        <svg viewBox="0 0 14 14"><line x1="2" y1="7" x2="12" y2="7"/></svg>
+      </button>
+      <button class="win-btn" id="winMax" title="Maximize">
+        <svg viewBox="0 0 14 14"><rect x="2" y="2" width="10" height="10" rx="1.5"/></svg>
+      </button>
+    </div>
+    <div class="logo">SOUNDBOARD</div>
+    <div class="topbar-spacer"></div>
+    <div class="device-group">
+      <label>Output</label>
+      <select class="device-select" id="outputSelect"><option value="">None</option></select>
+    </div>
+    <div class="device-group">
+      <label>Mic Route</label>
+      <select class="device-select" id="inputSelect" title="Pick the virtual cable input (e.g. VoiceMeeter In, CABLE Input) to route sounds to your mic"><option value="">None</option></select>
+    </div>
+    <div class="vol-group">
+      <label>Vol</label>
+      <input type="range" class="vol-slider" id="volumeSlider" min="0" max="100" value="80">
+    </div>
+    <button class="stop-btn" id="stopBtn">STOP</button>
+  </div>
+
+  <div id="sidebar">
+    <div class="sidebar-title">Favorites</div>
+    <div class="sidebar-buttons" id="sidebarButtons"></div>
+  </div>
+
+  <div id="main"></div>
+
+  <div id="bottombar">
+    <button class="bb-btn primary" id="addSoundBtn">+ Add Sound</button>
+    <button class="bb-btn secondary" id="browseSoundBtn">Browse Local</button>
+    <button class="bb-btn secondary" id="addCatBtn">+ Add Category</button>
+  </div>
+</div>
+
+<div class="ctx-menu" id="ctxMenu"></div>
+<div id="modalRoot"></div>
+
+<script>
+// ═══════════════════════════════════════════════════════════════════════
+// STATE
+// ═══════════════════════════════════════════════════════════════════════
+let config = {
+  volume: 80,
+  outputDeviceId: null,
+  buttons: [],       // each: { id, name, source, color, category, keybind, favorite, volume, gainDb, resolvedPath }
+  categories: [{ id: 'cat_1', name: 'Category 1', color: '#00c853' }]
+};
+
+const downloadingSet = new Set();
+
+const PUCK_COLORS = {
+  gray:   { main: '#555', hi: '#777', lo: '#3a3a3a' },
+  blue:   { main: '#1565c0', hi: '#42a5f5', lo: '#0d47a1' },
+  red:    { main: '#c62828', hi: '#ef5350', lo: '#b71c1c' },
+  green:  { main: '#2e7d32', hi: '#66bb6a', lo: '#1b5e20' },
+  orange: { main: '#e65100', hi: '#ff9800', lo: '#bf360c' },
+  purple: { main: '#6a1b9a', hi: '#ab47bc', lo: '#4a148c' },
+  cyan:   { main: '#00838f', hi: '#26c6da', lo: '#006064' },
+  yellow: { main: '#f9a825', hi: '#ffee58', lo: '#f57f17' },
+};
+const DEFAULT_CAT_COLORS = ['#00c853','#ff6d00','#d50000','#2962ff','#aa00ff','#00bfa5'];
+
+let outputDeviceId = null;
+let inputDeviceId = null;
+
+// ═══════════════════════════════════════════════════════════════════════
+// AUDIO
+// ═══════════════════════════════════════════════════════════════════════
+// Convert dB to linear gain multiplier
+function dbToLinear(db) { return Math.pow(10, db / 20); }
+
+// Track all active audio instances: { btnId, outputAudio, inputAudio, outputGain, inputGain, puckEl }
+let activeSounds = [];
+
+// We need separate AudioContexts per output device since setSinkId is per-context
+const audioContextCache = {}; // deviceId → AudioContext
+
+function getAudioContext(deviceId) {
+  if (audioContextCache[deviceId]) return audioContextCache[deviceId];
+  const ctx = new (window.AudioContext || window.webkitAudioContext)();
+  if (ctx.setSinkId && deviceId) {
+    ctx.setSinkId(deviceId).catch(e => console.warn('setSinkId on ctx:', e));
+  }
+  audioContextCache[deviceId] = ctx;
+  return ctx;
+}
+
+function stopAll() {
+  activeSounds.forEach(s => {
+    if (s.outputAudio) { s.outputAudio.pause(); s.outputAudio.currentTime = 0; }
+    if (s.inputAudio) { s.inputAudio.pause(); s.inputAudio.currentTime = 0; }
+    if (s.puckEl) s.puckEl.classList.remove('playing');
+  });
+  activeSounds = [];
+}
+
+function stopButton(btnId) {
+  const toStop = activeSounds.filter(s => s.btnId === btnId);
+  toStop.forEach(s => {
+    if (s.outputAudio) { s.outputAudio.pause(); s.outputAudio.currentTime = 0; }
+    if (s.inputAudio) { s.inputAudio.pause(); s.inputAudio.currentTime = 0; }
+    if (s.puckEl) s.puckEl.classList.remove('playing');
+  });
+  activeSounds = activeSounds.filter(s => s.btnId !== btnId);
+}
+
+function isButtonPlaying(btnId) {
+  return activeSounds.some(s => s.btnId === btnId);
+}
+
+function removeFinishedSound(entry) {
+  activeSounds = activeSounds.filter(s => s !== entry);
+  if (entry.puckEl && !activeSounds.some(s => s.btnId === entry.btnId)) {
+    entry.puckEl.classList.remove('playing');
+  }
+}
+
+// Create an Audio element routed through a Web Audio GainNode for true amplification
+function createAmplifiedAudio(url, deviceId, volume) {
+  const audio = new Audio();
+  audio.crossOrigin = 'anonymous';
+  audio.src = url;
+
+  // Try to use Web Audio API for gain beyond 1.0
+  let gainNode = null;
+  let ctx = null;
+  try {
+    ctx = getAudioContext(deviceId);
+    const source = ctx.createMediaElementSource(audio);
+    gainNode = ctx.createGain();
+    gainNode.gain.value = volume; // can exceed 1.0!
+    source.connect(gainNode);
+    gainNode.connect(ctx.destination);
+  } catch(e) {
+    // Fallback: setSinkId on the audio element directly, clamp volume
+    console.warn('Web Audio fallback:', e);
+    audio.volume = Math.min(volume, 1);
+    if (audio.setSinkId && deviceId) {
+      audio.setSinkId(deviceId).catch(err => console.warn('setSinkId:', err));
+    }
+  }
+
+  return { audio, gainNode };
+}
+
+async function playSound(btn, puckEl) {
+  let src = btn.resolvedPath || btn.source;
+  if (!src) return;
+
+  let url = src;
+  if (src.match(/^[A-Z]:\\/i) || src.startsWith('/')) {
+    url = 'file:///' + src.replace(/\\/g, '/');
+  }
+
+  // Compute final volume as a linear multiplier (can exceed 1.0 with positive dB)
+  const master = config.volume / 100;
+  const btnVol = (btn.volume ?? 100) / 100;
+  const gainMult = dbToLinear(btn.gainDb || 0);
+  const finalVol = Math.max(master * btnVol * gainMult, 0);
+
+  const hasOutput = !!outputDeviceId;
+  const hasInput = !!inputDeviceId;
+
+  if (!hasOutput && !hasInput) return;
+
+  const entry = { btnId: btn.id, outputAudio: null, inputAudio: null, puckEl: puckEl || null };
+
+  try {
+    if (hasOutput) {
+      const { audio, gainNode } = createAmplifiedAudio(url, outputDeviceId, finalVol);
+      entry.outputAudio = audio;
+      entry.outputGain = gainNode;
+      audio.play();
+
+      audio.addEventListener('ended', () => { entry.outputAudio = null; if (!entry.inputAudio) removeFinishedSound(entry); });
+      audio.addEventListener('error', () => { entry.outputAudio = null; if (!entry.inputAudio) removeFinishedSound(entry); });
+    }
+
+    if (hasInput) {
+      const { audio: audio2, gainNode: gainNode2 } = createAmplifiedAudio(url, inputDeviceId, finalVol);
+      entry.inputAudio = audio2;
+      entry.inputGain = gainNode2;
+      audio2.play();
+
+      audio2.addEventListener('ended', () => { entry.inputAudio = null; if (!entry.outputAudio) removeFinishedSound(entry); });
+      audio2.addEventListener('error', () => { entry.inputAudio = null; if (!entry.outputAudio) removeFinishedSound(entry); });
+    }
+
+    activeSounds.push(entry);
+    if (puckEl) puckEl.classList.add('playing');
+  } catch(e) { console.error('Play error:', e); }
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// DEVICES — live refresh, output only
+// ═══════════════════════════════════════════════════════════════════════
+async function refreshDevices() {
+  try { await navigator.mediaDevices.getUserMedia({ audio: true }); } catch(e){}
+  const devices = await navigator.mediaDevices.enumerateDevices();
+  const outputs = devices.filter(d => d.kind === 'audiooutput');
+
+  // Output selector
+  const outSel = document.getElementById('outputSelect');
+  const curOutVal = outSel.value;
+  outSel.innerHTML = '<option value="">None</option>';
+  outputs.forEach(d => {
+    const opt = document.createElement('option');
+    opt.value = d.deviceId;
+    opt.textContent = d.label || `Speaker ${d.deviceId.substring(0,8)}`;
+    outSel.appendChild(opt);
+  });
+  if (config.outputDeviceId && [...outSel.options].some(o => o.value === config.outputDeviceId)) {
+    outSel.value = config.outputDeviceId;
+  } else {
+    outSel.value = curOutVal || '';
+  }
+  outputDeviceId = outSel.value || null;
+
+  // Input selector — also uses audiooutput devices because we route via setSinkId
+  // The user picks the virtual cable INPUT (which appears as an output device)
+  const inSel = document.getElementById('inputSelect');
+  const curInVal = inSel.value;
+  inSel.innerHTML = '<option value="">None</option>';
+  outputs.forEach(d => {
+    const opt = document.createElement('option');
+    opt.value = d.deviceId;
+    opt.textContent = d.label || `Speaker ${d.deviceId.substring(0,8)}`;
+    inSel.appendChild(opt);
+  });
+  if (config.inputDeviceId && [...inSel.options].some(o => o.value === config.inputDeviceId)) {
+    inSel.value = config.inputDeviceId;
+  } else {
+    inSel.value = curInVal || '';
+  }
+  inputDeviceId = inSel.value || null;
+}
+
+navigator.mediaDevices?.addEventListener('devicechange', () => refreshDevices());
+
+// ═══════════════════════════════════════════════════════════════════════
+// CONFIG
+// ═══════════════════════════════════════════════════════════════════════
+const hasElectron = typeof window.api !== 'undefined';
+
+async function loadConfigFromDisk() {
+  if (hasElectron) config = await window.api.loadConfig();
+  config.buttons = config.buttons || [];
+  config.categories = config.categories || [{ id: 'cat_1', name: 'Category 1', color: '#00c853' }];
+  config.volume = config.volume ?? 80;
+  config.inputDeviceId = config.inputDeviceId || null;
+  // Ensure new fields exist on all buttons
+  config.buttons.forEach(b => {
+    if (b.volume === undefined) b.volume = 100;
+    if (b.gainDb === undefined) b.gainDb = 0;
+  });
+}
+
+async function saveConfig() {
+  if (hasElectron) await window.api.saveConfig(config);
+}
+
+async function pickFiles() {
+  if (hasElectron) return await window.api.pickFiles();
+  return new Promise(resolve => {
+    const inp = document.createElement('input');
+    inp.type = 'file'; inp.accept = 'audio/*'; inp.multiple = true;
+    inp.onchange = () => resolve(Array.from(inp.files).map(f => ({ name: f.name, url: URL.createObjectURL(f) })));
+    inp.click();
+  });
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// DOWNLOAD
+// ═══════════════════════════════════════════════════════════════════════
+function getCategoryName(catId) {
+  const cat = config.categories.find(c => c.id === catId);
+  return cat ? cat.name : 'Uncategorized';
+}
+
+function isUrl(src) { return src && (src.startsWith('http://') || src.startsWith('https://')); }
+
+async function downloadAndResolve(btn) {
+  if (!hasElectron) return btn.source;
+  const src = btn.source || '';
+  if (!isUrl(src)) return src;
+  if (btn.resolvedPath) return btn.resolvedPath;
+
+  const catName = getCategoryName(btn.category);
+  const safeName = btn.name.replace(/[^a-zA-Z0-9 _-]/g, '_').substring(0, 60);
+
+  downloadingSet.add(btn.id);
+  renderAll();
+
+  try {
+    const result = await window.api.downloadUrl({ url: src, categoryName: catName, fileName: safeName });
+    if (result.success) {
+      btn.resolvedPath = result.filePath;
+      await saveConfig();
+      return result.filePath;
+    } else {
+      alert('Download failed:\n\n' + (result.error || 'Unknown error'));
+      return null;
+    }
+  } catch(e) {
+    alert('Download error: ' + e.message);
+    return null;
+  } finally {
+    downloadingSet.delete(btn.id);
+    renderAll();
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// RENDER
+// ═══════════════════════════════════════════════════════════════════════
+function uid() { return 'id_' + Math.random().toString(36).substring(2, 10); }
+
+function renderPuck(btn, container) {
+  const colors = PUCK_COLORS[btn.color] || PUCK_COLORS.gray;
+  const cat = config.categories.find(c => c.id === btn.category);
+  const catColor = cat ? cat.color : '#888';
+  const el = document.createElement('div');
+  el.className = 'sound-puck';
+  el.dataset.btnId = btn.id;
+  el.style.setProperty('--cat-color', catColor);
+  if (btn.favorite) el.classList.add('favorited');
+  if (downloadingSet.has(btn.id)) el.classList.add('downloading');
+  // Restore playing state if this button is currently playing
+  if (isButtonPlaying(btn.id)) el.classList.add('playing');
+
+  el.innerHTML = `
+    <span class="fav-star">\u2605</span>
+    <div class="puck-circle" style="background:${colors.main}; color:${colors.main}; border-bottom: 3px solid ${colors.lo};"></div>
+    <div class="puck-label" title="${btn.name}">${btn.name}</div>
+  `;
+
+  // Update the puckEl reference in activeSounds so the outline persists after re-render
+  activeSounds.forEach(s => { if (s.btnId === btn.id) s.puckEl = el; });
+
+  el.addEventListener('click', async () => {
+    if (downloadingSet.has(btn.id)) return;
+    if (isUrl(btn.source) && !btn.resolvedPath) {
+      const resolved = await downloadAndResolve(btn);
+      if (!resolved) return;
+    }
+    playSound(btn, el);
+  });
+
+  el.addEventListener('contextmenu', (e) => {
+    e.preventDefault(); e.stopPropagation();
+    const items = [];
+    items.push({ label: '\u270F Edit', action: () => openEditButtonModal(btn) });
+    items.push({ label: btn.favorite ? '\u2606 Unfavorite' : '\u2605 Favorite', action: () => { btn.favorite = !btn.favorite; saveConfig(); renderAll(); } });
+    items.push('---');
+    items.push({ label: '\uD83D\uDDD1 Delete', danger: true, action: () => { config.buttons = config.buttons.filter(b => b !== btn); saveConfig(); renderAll(); } });
+    if (isButtonPlaying(btn.id)) {
+      items.push('---');
+      items.push({ label: '\u25A0 Stop', danger: true, action: () => { stopButton(btn.id); } });
+    }
+    showContextMenu(e.clientX, e.clientY, items);
+  });
+
+  container.appendChild(el);
+}
+
+function renderCategory(cat, buttons) {
+  const catBtns = buttons.filter(b => b.category === cat.id);
+  const frame = document.createElement('div');
+  frame.className = 'category-frame';
+  frame.style.setProperty('--cat-color', cat.color);
+
+  const header = document.createElement('div');
+  header.className = 'category-header';
+  header.innerHTML = `
+    <div class="category-dot"></div>
+    <div class="category-name">${cat.name}</div>
+    <div class="category-count">${catBtns.length} sound${catBtns.length !== 1 ? 's' : ''}</div>
+  `;
+  header.addEventListener('contextmenu', (e) => {
+    e.preventDefault(); e.stopPropagation();
+    showCategoryMenu(e, cat);
+  });
+  frame.appendChild(header);
+
+  const grid = document.createElement('div');
+  grid.className = 'category-grid';
+  grid.addEventListener('contextmenu', (e) => {
+    if (e.target === grid || e.target.classList.contains('category-empty')) {
+      e.preventDefault(); e.stopPropagation();
+      showCategoryMenu(e, cat);
+    }
+  });
+
+  if (catBtns.length === 0) {
+    grid.innerHTML = '<div class="category-empty">Right-click to add a sound</div>';
+  } else {
+    catBtns.forEach(btn => renderPuck(btn, grid));
+  }
+  frame.appendChild(grid);
+  return frame;
+}
+
+function showCategoryMenu(e, cat) {
+  showContextMenu(e.clientX, e.clientY, [
+    { label: '+ Add Sound Here', action: () => openEditButtonModal(null, cat.id) },
+    '---',
+    { label: '\u270F Edit Category', action: () => openEditCategoryModal(cat) },
+    { label: '\uD83D\uDDD1 Delete Category', danger: true, action: () => {
+      config.categories = config.categories.filter(c => c !== cat);
+      config.buttons = config.buttons.filter(b => b.category !== cat.id);
+      saveConfig(); renderAll();
+    }},
+  ]);
+}
+
+function renderAll() {
+  const main = document.getElementById('main');
+  main.innerHTML = '';
+  const sidebar = document.getElementById('sidebarButtons');
+  sidebar.innerHTML = '';
+
+  const favs = config.buttons.filter(b => b.favorite);
+  if (favs.length === 0) {
+    sidebar.innerHTML = '<div class="sidebar-empty">Right-click a sound and choose Favorite to pin it here</div>';
+  } else {
+    favs.forEach(btn => renderPuck(btn, sidebar));
+  }
+
+  config.categories.forEach(cat => {
+    main.appendChild(renderCategory(cat, config.buttons));
+  });
+
+  document.getElementById('volumeSlider').value = config.volume;
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// CONTEXT MENU
+// ═══════════════════════════════════════════════════════════════════════
+function showContextMenu(x, y, items) {
+  const menu = document.getElementById('ctxMenu');
+  menu.innerHTML = '';
+  items.forEach(item => {
+    if (item === '---') {
+      menu.appendChild(Object.assign(document.createElement('div'), { className: 'ctx-sep' }));
+    } else {
+      const btn = document.createElement('button');
+      btn.className = 'ctx-item' + (item.danger ? ' danger' : '');
+      btn.textContent = item.label;
+      btn.addEventListener('click', () => { hideContextMenu(); item.action(); });
+      menu.appendChild(btn);
+    }
+  });
+  menu.style.left = x + 'px'; menu.style.top = y + 'px';
+  menu.classList.add('show');
+  requestAnimationFrame(() => {
+    const r = menu.getBoundingClientRect();
+    if (r.right > window.innerWidth) menu.style.left = (x - r.width) + 'px';
+    if (r.bottom > window.innerHeight) menu.style.top = (y - r.height) + 'px';
+  });
+}
+function hideContextMenu() { document.getElementById('ctxMenu').classList.remove('show'); }
+document.addEventListener('click', hideContextMenu);
+
+// ═══════════════════════════════════════════════════════════════════════
+// MODALS
+// ═══════════════════════════════════════════════════════════════════════
+function closeModal() { document.getElementById('modalRoot').innerHTML = ''; keybindListening = false; keybindLiveCallback = null; }
+
+// ── Keybind recording state ──
+let keybindListening = false;
+let keybindCallback = null;
+let keybindLiveCallback = null; // shows live combo as keys are held
+
+function openEditButtonModal(existingBtn = null, defaultCatId = null) {
+  const isEdit = !!existingBtn;
+  const btn = existingBtn || {
+    name: '', source: '', color: 'gray',
+    category: defaultCatId || config.categories[0]?.id || '',
+    keybind: '', favorite: false, volume: 100, gainDb: 0
+  };
+
+  const root = document.getElementById('modalRoot');
+  root.innerHTML = `
+    <div class="modal-overlay" id="modalOverlay">
+      <div class="modal">
+        <h2>${isEdit ? 'Edit Sound' : 'New Sound'}</h2>
+        <div class="modal-field">
+          <label>Name</label>
+          <input type="text" id="mName" value="${btn.name}" placeholder="My Sound">
+        </div>
+        <div class="modal-field">
+          <label>Source (file path or YouTube/URL)</label>
+          <div class="input-row">
+            <input type="text" id="mSource" value="${btn.source}" placeholder="/path/to/sound.mp3 or https://...">
+            <button id="mBrowse">Browse</button>
+          </div>
+        </div>
+        <div class="modal-field">
+          <label>Color</label>
+          <div class="color-options" id="mColors"></div>
+        </div>
+        <div class="modal-field">
+          <label>Category</label>
+          <select id="mCategory">
+            ${config.categories.map(c => `<option value="${c.id}" ${c.id === btn.category ? 'selected' : ''}>${c.name}</option>`).join('')}
+          </select>
+        </div>
+        <div class="vol-gain-row" style="margin-bottom:12px;">
+          <div class="modal-field">
+            <label>Volume <span id="mVolVal">${btn.volume ?? 100}%</span></label>
+            <input type="range" class="mini-slider" id="mVolume" min="0" max="100" value="${btn.volume ?? 100}">
+          </div>
+          <div class="modal-field">
+            <label>Amplifier</label>
+            <div class="gain-row">
+              <button class="gain-btn" id="gainDown">\u2212</button>
+              <input type="text" class="gain-val" id="gainVal" value="${(btn.gainDb || 0) >= 0 ? '+' : ''}${btn.gainDb || 0} dB">
+              <button class="gain-btn" id="gainUp">+</button>
+            </div>
+          </div>
+        </div>
+        <div class="modal-field">
+          <label>Keybind (click to record — works in background)</label>
+          <div class="keybind-box" id="keybindBox">${btn.keybind || 'Click to set keybind...'}</div>
+          <div class="keybind-clear" id="keybindClear">clear keybind</div>
+        </div>
+        <div class="modal-actions">
+          <button class="cancel-btn" id="mCancel">Cancel</button>
+          <button class="save-btn" id="mSave">Save</button>
+        </div>
+      </div>
+    </div>
+  `;
+
+  // Colors
+  const colorsEl = document.getElementById('mColors');
+  Object.entries(PUCK_COLORS).forEach(([name, c]) => {
+    const opt = document.createElement('div');
+    opt.className = 'color-opt' + (btn.color === name ? ' selected' : '');
+    opt.style.background = c.main; opt.style.color = c.main;
+    opt.dataset.color = name;
+    opt.addEventListener('click', () => {
+      colorsEl.querySelectorAll('.color-opt').forEach(o => o.classList.remove('selected'));
+      opt.classList.add('selected');
+    });
+    colorsEl.appendChild(opt);
+  });
+
+  // Browse
+  document.getElementById('mBrowse').addEventListener('click', async () => {
+    const files = await pickFiles();
+    if (files && files.length > 0) {
+      const first = typeof files[0] === 'string' ? files[0] : files[0].url;
+      document.getElementById('mSource').value = first;
+      if (!document.getElementById('mName').value) {
+        const name = typeof files[0] === 'string'
+          ? files[0].split(/[/\\]/).pop().replace(/\.[^.]+$/, '')
+          : files[0].name.replace(/\.[^.]+$/, '');
+        document.getElementById('mName').value = name;
+      }
+    }
+  });
+
+  // Volume slider
+  const volSlider = document.getElementById('mVolume');
+  const volVal = document.getElementById('mVolVal');
+  volSlider.addEventListener('input', () => { volVal.textContent = volSlider.value + '%'; });
+
+  // Gain +/- buttons
+  let currentGain = btn.gainDb || 0;
+  const gainValEl = document.getElementById('gainVal');
+  function updateGainDisplay() {
+    gainValEl.value = (currentGain >= 0 ? '+' : '') + currentGain + ' dB';
+  }
+  document.getElementById('gainUp').addEventListener('click', () => { currentGain = currentGain + 1; updateGainDisplay(); });
+  document.getElementById('gainDown').addEventListener('click', () => { currentGain = currentGain - 1; updateGainDisplay(); });
+
+  // Allow direct editing of the dB value
+  gainValEl.addEventListener('change', () => {
+    const raw = gainValEl.value.replace(/[^0-9.\-+]/g, '').trim();
+    const parsed = parseFloat(raw);
+    if (!isNaN(parsed)) {
+      currentGain = Math.round(parsed);
+    }
+    updateGainDisplay();
+  });
+  gainValEl.addEventListener('focus', () => {
+    // Select all text for easy overwrite
+    gainValEl.select();
+  });
+
+  // Keybind recorder
+  let recordedKeybind = btn.keybind || '';
+  const keybindBox = document.getElementById('keybindBox');
+
+  // Keybind recording: click starts listening.
+  // Problem: setting Mouse1 as keybind → mouseup fires → click fires → restarts listening.
+  // Fix: after keybind is set, skip the very next click event on this box.
+  let skipNextClick = false;
+
+  keybindBox.addEventListener('click', (e) => {
+    if (skipNextClick) { skipNextClick = false; return; }
+    if (keybindListening) return;
+    keybindListening = true;
+    appHeldModifiers = { ctrl: false, shift: false, alt: false };
+    appPeakModifierCombo = '';
+    appHadNonModifier = false;
+    keybindBox.classList.add('listening');
+    keybindBox.textContent = 'Press any key or mouse button...';
+
+    keybindLiveCallback = (combo) => {
+      keybindBox.textContent = combo + '+...';
+    };
+
+    keybindCallback = (combo, isFinal) => {
+      if (!isFinal) return;
+      recordedKeybind = combo;
+      keybindBox.textContent = combo;
+      keybindBox.classList.remove('listening');
+      keybindListening = false;
+      keybindCallback = null;
+      keybindLiveCallback = null;
+      appHeldModifiers = { ctrl: false, shift: false, alt: false };
+      // If this was a mouse keybind, the mouseup+click will follow — skip it
+      if (combo.includes('Mouse')) skipNextClick = true;
+    };
+  });
+
+  // Capture mouse buttons when listening — non-left on the box, or any button anywhere
+  keybindBox.addEventListener('mousedown', (e) => {
+    if (!keybindListening) return;
+    if (e.button === 0) return; // left-click on the box is handled differently (see below)
+    e.preventDefault(); e.stopPropagation();
+    const btnMap = { 0: 'Mouse1', 1: 'Mouse3', 2: 'Mouse2', 3: 'Mouse4', 4: 'Mouse5' };
+    const mBtn = btnMap[e.button] || `Mouse${e.button}`;
+    const parts = [];
+    if (e.ctrlKey) parts.push('Ctrl');
+    if (e.shiftKey) parts.push('Shift');
+    if (e.altKey) parts.push('Alt');
+    parts.push(mBtn);
+    if (keybindCallback) keybindCallback(parts.join('+'), true);
+  });
+
+  // For left-click (Mouse1): capture it when clicking OUTSIDE the keybind box while listening
+  document.addEventListener('mousedown', (e) => {
+    if (!keybindListening) return;
+    // Skip clicks on keybind box itself (left-click there does nothing while listening),
+    // clear button, save, cancel
+    if (e.target === keybindBox) return;
+    if (e.target.id === 'keybindClear' || e.target.id === 'mSave' || e.target.id === 'mCancel') return;
+    if (e.target.closest && (e.target.closest('.modal-actions') || e.target.closest('.keybind-clear'))) return;
+
+    e.preventDefault(); e.stopPropagation();
+    const btnMap = { 0: 'Mouse1', 1: 'Mouse3', 2: 'Mouse2', 3: 'Mouse4', 4: 'Mouse5' };
+    const mBtn = btnMap[e.button] || `Mouse${e.button}`;
+    const parts = [];
+    if (e.ctrlKey) parts.push('Ctrl');
+    if (e.shiftKey) parts.push('Shift');
+    if (e.altKey) parts.push('Alt');
+    parts.push(mBtn);
+    if (keybindCallback) keybindCallback(parts.join('+'), true);
+  }, true);
+
+  // Prevent context menu on right-click in keybind box
+  keybindBox.addEventListener('contextmenu', (e) => {
+    if (keybindListening) { e.preventDefault(); e.stopPropagation(); }
+  });
+
+  document.getElementById('keybindClear').addEventListener('click', () => {
+    recordedKeybind = '';
+    keybindBox.textContent = 'Click to set keybind...';
+    keybindBox.classList.remove('listening');
+    keybindListening = false;
+    keybindCallback = null;
+    keybindLiveCallback = null;
+    appHeldModifiers = { ctrl: false, shift: false, alt: false };
+  });
+
+  // Save
+  document.getElementById('mSave').addEventListener('click', () => {
+    const name = document.getElementById('mName').value.trim();
+    const source = document.getElementById('mSource').value.trim();
+    if (!name || !source) return;
+    const color = colorsEl.querySelector('.color-opt.selected')?.dataset.color || 'gray';
+    const category = document.getElementById('mCategory').value;
+    const volume = parseInt(volSlider.value);
+    const gainDb = currentGain;
+
+    if (isEdit) {
+      Object.assign(btn, { name, source, color, category, keybind: recordedKeybind, volume, gainDb });
+    } else {
+      config.buttons.push({
+        id: uid(), name, source, color, category,
+        keybind: recordedKeybind, favorite: false, volume, gainDb
+      });
+    }
+    keybindListening = false; keybindCallback = null; keybindLiveCallback = null;
+    saveConfig(); renderAll(); closeModal();
+  });
+
+  document.getElementById('mCancel').addEventListener('click', closeModal);
+  document.getElementById('modalOverlay').addEventListener('click', (e) => {
+    if (e.target.id === 'modalOverlay') closeModal();
+  });
+  document.getElementById('mName').focus();
+}
+
+function openEditCategoryModal(existingCat = null) {
+  const isEdit = !!existingCat;
+  const cat = existingCat || { id: uid(), name: '', color: DEFAULT_CAT_COLORS[config.categories.length % DEFAULT_CAT_COLORS.length] };
+
+  const root = document.getElementById('modalRoot');
+  root.innerHTML = `
+    <div class="modal-overlay" id="modalOverlay">
+      <div class="modal">
+        <h2>${isEdit ? 'Edit Category' : 'New Category'}</h2>
+        <div class="modal-field">
+          <label>Name</label>
+          <input type="text" id="mcName" value="${cat.name}" placeholder="My Category">
+        </div>
+        <div class="modal-field">
+          <label>Color</label>
+          <input type="color" id="mcColor" value="${cat.color}" style="width:48px;height:36px;border:1px solid var(--border);border-radius:6px;background:var(--bg-card);cursor:pointer;padding:2px;">
+        </div>
+        <div class="modal-actions">
+          <button class="cancel-btn" id="mcCancel">Cancel</button>
+          <button class="save-btn" id="mcSave">Save</button>
+        </div>
+      </div>
+    </div>
+  `;
+  document.getElementById('mcSave').addEventListener('click', () => {
+    const name = document.getElementById('mcName').value.trim();
+    if (!name) return;
+    const color = document.getElementById('mcColor').value;
+    if (isEdit) { cat.name = name; cat.color = color; }
+    else { config.categories.push({ id: cat.id, name, color }); }
+    saveConfig(); renderAll(); closeModal();
+  });
+  document.getElementById('mcCancel').addEventListener('click', closeModal);
+  document.getElementById('modalOverlay').addEventListener('click', (e) => { if (e.target.id === 'modalOverlay') closeModal(); });
+  document.getElementById('mcName').focus();
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// GLOBAL HOTKEYS (from main process via uiohook)
+// ═══════════════════════════════════════════════════════════════════════
+function handleGlobalInput(combo) {
+  if (keybindListening) return;
+  const btn = config.buttons.find(b => b.keybind && b.keybind.toLowerCase() === combo.toLowerCase());
+  if (btn) {
+    if (isUrl(btn.source) && !btn.resolvedPath) {
+      downloadAndResolve(btn).then(path => { if (path) playSound(btn); });
+    } else {
+      playSound(btn);
+    }
+  }
+}
+
+// For keybind recording: live combo updates from uiohook
+function handleKeybindComboUpdate(combo) {
+  if (keybindListening && keybindCallback) {
+    keybindCallback(combo, true); // true = final (key was pressed)
+  }
+}
+
+// Modifier-only changes (live preview while recording)
+function handleKeybindModifierChange(combo) {
+  if (keybindListening && keybindLiveCallback && combo) {
+    keybindLiveCallback(combo);
+  }
+}
+
+// Modifier released without any non-modifier key: finalize as modifier-only keybind
+function handleKeybindModifierRelease(combo) {
+  if (keybindListening && keybindCallback && combo) {
+    keybindCallback(combo, true);
+  }
+}
+
+if (hasElectron) {
+  window.api.onGlobalKeydown((combo) => handleGlobalInput(combo));
+  window.api.onGlobalMousedown((combo) => handleGlobalInput(combo));
+  // Keybind recording events
+  window.api.onGlobalComboUpdate((combo) => handleKeybindComboUpdate(combo));
+  window.api.onGlobalModifierChange((combo) => handleKeybindModifierChange(combo));
+  window.api.onGlobalModifierRelease((combo) => handleKeybindModifierRelease(combo));
+}
+
+// Also handle keyboard within the app (for when uiohook isn't available)
+let appHeldModifiers = { ctrl: false, shift: false, alt: false };
+let modifierOnlyTimer = null;
+let appPeakModifierCombo = ''; // tracks highest modifier combo reached
+let appHadNonModifier = false; // true if a non-modifier key was pressed during this hold
+
+document.addEventListener('keydown', (e) => {
+  if (['INPUT','SELECT','TEXTAREA'].includes(e.target.tagName)) return;
+  if (keybindListening && keybindCallback) {
+    e.preventDefault();
+    clearTimeout(modifierOnlyTimer);
+
+    // Track modifiers
+    if (e.key === 'Control') { appHeldModifiers.ctrl = true; updateAppPeakCombo(); updateLiveModifiers(); return; }
+    if (e.key === 'Shift') { appHeldModifiers.shift = true; updateAppPeakCombo(); updateLiveModifiers(); return; }
+    if (e.key === 'Alt') { appHeldModifiers.alt = true; updateAppPeakCombo(); updateLiveModifiers(); return; }
+    if (e.key === 'Meta') return;
+
+    // Non-modifier key pressed — finalize the combo, clear peak tracking
+    appHadNonModifier = true;
+    appPeakModifierCombo = '';
+    const parts = [];
+    if (appHeldModifiers.ctrl || e.ctrlKey) parts.push('Ctrl');
+    if (appHeldModifiers.shift || e.shiftKey) parts.push('Shift');
+    if (appHeldModifiers.alt || e.altKey) parts.push('Alt');
+    const key = e.key.length === 1 ? e.key.toLowerCase() : e.key;
+    parts.push(key);
+    keybindCallback(parts.join('+'), true);
+    return;
+  }
+});
+
+document.addEventListener('keyup', (e) => {
+  if (['INPUT','SELECT','TEXTAREA'].includes(e.target.tagName)) return;
+  if (keybindListening && keybindCallback) {
+    e.preventDefault();
+    if (['Control','Shift','Alt'].includes(e.key)) {
+      if (e.key === 'Control') appHeldModifiers.ctrl = false;
+      if (e.key === 'Shift') appHeldModifiers.shift = false;
+      if (e.key === 'Alt') appHeldModifiers.alt = false;
+
+      // Only finalize as modifier-only if no non-modifier keys were pressed
+      if (!appHadNonModifier && appPeakModifierCombo) {
+        clearTimeout(modifierOnlyTimer);
+        modifierOnlyTimer = setTimeout(() => {
+          // Only fire once ALL modifiers are released
+          if (!appHeldModifiers.ctrl && !appHeldModifiers.shift && !appHeldModifiers.alt && appPeakModifierCombo) {
+            if (keybindListening && keybindCallback) {
+              const combo = appPeakModifierCombo;
+              appPeakModifierCombo = '';
+              keybindCallback(combo, true);
+            }
+          }
+        }, 100);
+      }
+
+      // Reset when all modifiers released
+      if (!appHeldModifiers.ctrl && !appHeldModifiers.shift && !appHeldModifiers.alt) {
+        appHadNonModifier = false;
+      }
+    }
+  }
+});
+
+function updateAppPeakCombo() {
+  const current = buildAppModifierCombo();
+  if (current) appPeakModifierCombo = current;
+}
+
+function buildAppModifierCombo() {
+  const parts = [];
+  if (appHeldModifiers.ctrl) parts.push('Ctrl');
+  if (appHeldModifiers.shift) parts.push('Shift');
+  if (appHeldModifiers.alt) parts.push('Alt');
+  return parts.join('+') || '';
+}
+
+function updateLiveModifiers() {
+  const combo = buildAppModifierCombo();
+  if (combo && keybindLiveCallback) keybindLiveCallback(combo);
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// INIT
+// ═══════════════════════════════════════════════════════════════════════
+async function init() {
+  await loadConfigFromDisk();
+  await refreshDevices();
+  renderAll();
+
+  const outSel = document.getElementById('outputSelect');
+  if (config.outputDeviceId) outSel.value = config.outputDeviceId;
+  outputDeviceId = outSel.value || null;
+
+  const inSel = document.getElementById('inputSelect');
+  if (config.inputDeviceId) inSel.value = config.inputDeviceId;
+  inputDeviceId = inSel.value || null;
+
+  document.getElementById('volumeSlider').addEventListener('input', (e) => {
+    config.volume = parseInt(e.target.value);
+    // Update gain on all active sounds — recalculate isn't practical per-button here,
+    // so we scale relative to master change
+    const vol = config.volume / 100;
+    activeSounds.forEach(s => {
+      if (s.outputGain) s.outputGain.gain.value *= 1; // can't easily recalc per-btn, leave as is
+      if (s.outputAudio && !s.outputGain) s.outputAudio.volume = Math.min(vol, 1);
+      if (s.inputAudio && !s.inputGain) s.inputAudio.volume = Math.min(vol, 1);
+    });
+    saveConfig();
+  });
+
+  document.getElementById('stopBtn').addEventListener('click', stopAll);
+
+  outSel.addEventListener('change', () => {
+    config.outputDeviceId = outSel.value || null;
+    outputDeviceId = outSel.value || null;
+    saveConfig();
+  });
+
+  inSel.addEventListener('change', () => {
+    config.inputDeviceId = inSel.value || null;
+    inputDeviceId = inSel.value || null;
+    saveConfig();
+  });
+
+  document.getElementById('addSoundBtn').addEventListener('click', () => openEditButtonModal());
+  document.getElementById('addCatBtn').addEventListener('click', () => openEditCategoryModal());
+
+  document.getElementById('browseSoundBtn').addEventListener('click', async () => {
+    const files = await pickFiles();
+    if (!files || files.length === 0) return;
+    const catId = config.categories[0]?.id || '';
+    files.forEach(f => {
+      const isPath = typeof f === 'string';
+      config.buttons.push({
+        id: uid(),
+        name: isPath ? f.split(/[/\\]/).pop().replace(/\.[^.]+$/, '') : f.name.replace(/\.[^.]+$/, ''),
+        source: isPath ? f : f.url,
+        color: 'gray', category: catId, keybind: '', favorite: false,
+        volume: 100, gainDb: 0
+      });
+    });
+    saveConfig(); renderAll();
+  });
+
+  if (hasElectron) {
+    document.getElementById('winClose').addEventListener('click', () => window.api.winClose());
+    document.getElementById('winMin').addEventListener('click', () => window.api.winMinimize());
+    document.getElementById('winMax').addEventListener('click', () => window.api.winMaximize());
+  }
+}
+
+init();
+</script>
+</body>
+</html>
