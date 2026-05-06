@@ -16,11 +16,20 @@
       "target": "nsis",
       "icon": "icon.ico"
     },
+    "mac": {
+      "icon": "icon.png"
+    },
+    "linux": {
+      "icon": "icon.png"
+    },
     "files": [
       "main.js",
       "preload.js",
       "renderer/**/*",
-      "node_modules/**/*"
+      "node_modules/**/*",
+      "icon.ico",
+      "icon.png",
+      "tray-icon.png"
     ]
   },
   "devDependencies": {

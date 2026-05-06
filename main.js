@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, dialog } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, Tray, Menu, nativeImage } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const { spawn } = require('child_process');
@@ -9,6 +9,8 @@ const APP_ROOT = app.isPackaged
   : __dirname;
 const SOUNDS_DIR = path.join(APP_ROOT, 'sounds');
 const CONFIG_PATH = path.join(APP_ROOT, 'soundboard-config.json');
+const ICON_PATH = path.join(__dirname, 'icon.png');
+const TRAY_ICON_PATH = path.join(__dirname, 'tray-icon.png');
 
 function ensureDirs() {
   if (!fs.existsSync(SOUNDS_DIR)) fs.mkdirSync(SOUNDS_DIR, { recursive: true });
@@ -40,6 +42,8 @@ function saveConfig(cfg) {
 
 // ── Window ──────────────────────────────────────────────────────────────
 let mainWindow;
+let tray = null;
+let isQuitting = false;
 
 function createWindow() {
   mainWindow = new BrowserWindow({
@@ -49,6 +53,7 @@ function createWindow() {
     minHeight: 500,
     backgroundColor: '#0a0a0f',
     frame: false,
+    icon: ICON_PATH,
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
@@ -56,15 +61,65 @@ function createWindow() {
     }
   });
   mainWindow.loadFile('renderer/index.html');
+
+  // Hide to tray instead of closing
+  mainWindow.on('close', (e) => {
+    if (!isQuitting) {
+      e.preventDefault();
+      mainWindow.hide();
+    }
+  });
+}
+
+function createTray() {
+  const icon = nativeImage.createFromPath(TRAY_ICON_PATH);
+  tray = new Tray(icon);
+  tray.setToolTip('Soundboard');
+
+  const contextMenu = Menu.buildFromTemplate([
+    {
+      label: 'Show Soundboard',
+      click: () => {
+        if (mainWindow) {
+          mainWindow.show();
+          mainWindow.focus();
+        }
+      }
+    },
+    { type: 'separator' },
+    {
+      label: 'Quit',
+      click: () => {
+        isQuitting = true;
+        app.quit();
+      }
+    }
+  ]);
+
+  tray.setContextMenu(contextMenu);
+
+  // Double-click tray icon to show window
+  tray.on('double-click', () => {
+    if (mainWindow) {
+      mainWindow.show();
+      mainWindow.focus();
+    }
+  });
 }
 
 app.whenReady().then(() => {
   ensureDirs();
   createWindow();
+  createTray();
   setupGlobalHotkeys();
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
+    else if (mainWindow) { mainWindow.show(); mainWindow.focus(); }
   });
+});
+
+app.on('before-quit', () => {
+  isQuitting = true;
 });
 
 app.on('window-all-closed', () => {
@@ -208,7 +263,7 @@ ipcMain.on('win-maximize', () => {
   if (mainWindow?.isMaximized()) mainWindow.unmaximize();
   else mainWindow?.maximize();
 });
-ipcMain.on('win-close', () => mainWindow?.close());
+ipcMain.on('win-close', () => mainWindow?.hide());
 
 // ── IPC: config ─────────────────────────────────────────────────────────
 ipcMain.handle('load-config', () => loadConfig());
