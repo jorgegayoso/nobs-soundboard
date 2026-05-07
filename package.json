@@ -1,7 +1,7 @@
 {
-  "name": "soundboard",
+  "name": "nobs-soundboard",
   "version": "1.0.0",
-  "description": "Microphone soundboard with virtual audio cable routing",
+  "description": "Nob's Soundboard — microphone soundboard with virtual audio cable routing",
   "main": "main.js",
   "scripts": {
     "start": "electron .",
@@ -10,8 +10,8 @@
     "build-linux": "electron-builder --linux"
   },
   "build": {
-    "appId": "com.soundboard.app",
-    "productName": "Soundboard",
+    "appId": "com.nob.soundboard",
+    "productName": "Nob's Soundboard",
     "win": {
       "target": "nsis",
       "icon": "icon.ico"

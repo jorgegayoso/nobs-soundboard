@@ -7,6 +7,8 @@ contextBridge.exposeInMainWorld('api', {
   downloadUrl:  ({ url, categoryName, fileName }) =>
     ipcRenderer.invoke('download-url', { url, categoryName, fileName }),
   getSoundsDir: () => ipcRenderer.invoke('get-sounds-dir'),
+  pickVoicemeeterPath: () => ipcRenderer.invoke('pick-voicemeeter-path'),
+  launchVoicemeeter: (path) => ipcRenderer.invoke('launch-voicemeeter', path),
   winMinimize:  () => ipcRenderer.send('win-minimize'),
   winMaximize:  () => ipcRenderer.send('win-maximize'),
   winClose:     () => ipcRenderer.send('win-close'),

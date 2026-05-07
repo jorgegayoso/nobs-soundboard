@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Soundboard</title>
+<title>Nob's Soundboard</title>
 <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700;800&family=Outfit:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -51,7 +51,7 @@ html, body {
 #app {
   display: grid;
   grid-template-rows: 42px 1fr 46px;
-  grid-template-columns: 170px 1fr;
+  grid-template-columns: var(--sidebar-width, 204px) 1fr;
   grid-template-areas: "topbar topbar" "sidebar main" "bottom bottom";
   height: 100vh;
 }
@@ -126,22 +126,33 @@ html, body {
   grid-area: sidebar; background: var(--bg-surface);
   border-right: 1px solid var(--border);
   display: flex; flex-direction: column; overflow: hidden;
+  position: relative; min-width: 120px;
 }
 .sidebar-title {
   font-family: var(--font-mono); font-weight: 700; font-size: 11px;
   color: var(--text-3); text-transform: uppercase; letter-spacing: 1px;
   padding: 12px 12px 6px;
 }
-.sidebar-buttons { flex: 1; overflow-y: auto; padding: 4px 8px; display: flex; flex-direction: column; gap: 6px; }
+.sidebar-buttons {
+  flex: 1; overflow-y: auto; padding: 4px 8px;
+  display: flex; flex-wrap: wrap; align-content: flex-start; gap: 6px;
+  min-height: 60px;
+}
 .sidebar-empty {
   font-family: var(--font-mono); font-size: 10px; color: var(--text-3);
   padding: 10px 4px; line-height: 1.5;
 }
+#sidebarResize {
+  position: absolute; top: 0; right: -3px; bottom: 0; width: 6px;
+  cursor: col-resize; z-index: 5;
+}
+#sidebarResize:hover, #sidebarResize.active { background: var(--accent); opacity: 0.3; }
 
 /* ═══ MAIN ═══ */
 #main {
   grid-area: main; overflow-y: auto; padding: 14px 18px;
   display: flex; flex-direction: column; gap: 14px;
+  min-height: 0;
 }
 
 /* ═══ BOTTOM BAR ═══ */
@@ -150,6 +161,7 @@ html, body {
   border-top: 1px solid var(--border);
   display: flex; align-items: center; padding: 0 14px; gap: 8px;
 }
+.bb-spacer { flex: 1; }
 .bb-btn {
   border: none; font-family: var(--font-mono); font-weight: 600; font-size: 11px;
   padding: 6px 14px; border-radius: 18px; cursor: pointer; transition: all 0.15s;
@@ -158,6 +170,45 @@ html, body {
 .bb-btn.primary:hover { background: var(--accent-dim); }
 .bb-btn.secondary { background: var(--bg-card); color: var(--text-1); border: 1px solid var(--border); }
 .bb-btn.secondary:hover { background: var(--bg-hover); border-color: var(--accent); color: var(--accent); }
+.bb-btn.vm { background: var(--bg-card); color: var(--text-2); border: 1px solid var(--border); font-size: 10px; padding: 5px 10px; }
+.bb-btn.vm:hover { background: var(--bg-hover); border-color: #ff9800; color: #ff9800; }
+.bb-btn.guide { background: var(--bg-card); color: var(--accent); border: 1px solid var(--accent-dim); font-size: 10px; padding: 5px 12px; }
+.bb-btn.guide:hover { background: var(--accent-glow); border-color: var(--accent); }
+.bb-btn.guide.blink {
+  animation: guide-blink 1.5s ease-in-out infinite;
+}
+@keyframes guide-blink {
+  0%, 100% { opacity: 1; box-shadow: none; }
+  50% { opacity: 0.7; box-shadow: 0 0 12px var(--accent-glow); }
+}
+
+/* Guide modal */
+.guide-content { font-family: var(--font-body); font-size: 13px; color: var(--text-1); line-height: 1.7; }
+.guide-content h3 {
+  font-family: var(--font-mono); font-size: 12px; font-weight: 700;
+  color: var(--accent); margin: 14px 0 6px; text-transform: uppercase; letter-spacing: 0.5px;
+}
+.guide-content h3:first-child { margin-top: 0; }
+.guide-content p { margin: 4px 0; }
+.guide-content .step {
+  display: flex; gap: 8px; margin: 6px 0; padding: 8px 10px;
+  background: var(--bg-card); border-radius: 8px; border-left: 3px solid var(--accent);
+}
+.guide-content .step-num {
+  font-family: var(--font-mono); font-weight: 700; font-size: 13px;
+  color: var(--accent); min-width: 20px;
+}
+.guide-content .step-text { flex: 1; }
+.guide-content .note {
+  margin: 8px 0; padding: 8px 10px;
+  background: rgba(255, 152, 0, 0.1); border-radius: 8px;
+  border-left: 3px solid #ff9800; font-size: 12px; color: #ffb74d;
+}
+.guide-content .tip {
+  margin: 8px 0; padding: 8px 10px;
+  background: rgba(0, 230, 118, 0.06); border-radius: 8px;
+  border-left: 3px solid var(--accent-dim); font-size: 12px; color: var(--accent);
+}
 
 /* ═══ SOUND PUCK ═══ */
 .sound-puck {
@@ -168,6 +219,26 @@ html, body {
 }
 .sound-puck:hover { background: var(--bg-raised); transform: translateY(-1px); }
 .sound-puck:active { transform: translateY(1px); }
+
+/* Drag and drop */
+.sound-puck[draggable="true"] { cursor: grab; }
+.sound-puck.dragging { opacity: 0.3; }
+.sound-puck.drag-over { outline: 2px dashed var(--accent); outline-offset: 2px; }
+.category-grid.drag-over-empty { outline: 2px dashed var(--accent); outline-offset: -2px; border-radius: var(--radius); }
+
+/* Loop indicator */
+.sound-puck .loop-icon {
+  position: absolute; top: 3px; left: 5px;
+  font-size: 9px; color: var(--cat-color, var(--accent));
+  filter: drop-shadow(0 0 2px var(--cat-color, var(--accent-glow)));
+  display: none;
+}
+.sound-puck.looping .loop-icon { display: block; }
+.sound-puck.looping {
+  outline: 2px solid var(--cat-color, var(--accent));
+  outline-offset: -1px;
+  border-radius: var(--radius);
+}
 
 .sound-puck.downloading { opacity: 0.35; pointer-events: none; filter: grayscale(0.5); }
 .sound-puck.downloading .puck-label { animation: blink 1s ease-in-out infinite; }
@@ -187,11 +258,6 @@ html, body {
   box-shadow: 0 3px 0 rgba(0,0,0,0.4); transition: box-shadow 0.1s;
 }
 .sound-puck:active .puck-circle { box-shadow: 0 1px 0 rgba(0,0,0,0.4); }
-.puck-circle::before {
-  content: ''; position: absolute; top: 0; left: 0; right: 0; height: 50%;
-  background: linear-gradient(180deg, rgba(255,255,255,0.2) 0%, transparent 100%);
-  border-radius: 15px 15px 0 0;
-}
 
 .puck-label {
   font-family: var(--font-mono); font-size: 9px; color: var(--text-2);
@@ -215,10 +281,21 @@ html, body {
   border: 2px solid var(--cat-color, var(--border));
   border-radius: var(--radius-lg); background: var(--bg-surface);
   overflow: hidden; transition: border-color 0.2s;
+  flex-shrink: 0;
 }
+.category-frame.dragging { opacity: 0.3; }
+.category-frame.cat-drag-over { border-color: var(--accent); border-style: dashed; }
 .category-header {
-  display: flex; align-items: center; padding: 9px 14px; gap: 8px; cursor: context-menu;
+  display: flex; align-items: center; padding: 9px 14px; gap: 8px; cursor: grab;
 }
+.category-header:active { cursor: grabbing; }
+.category-fold {
+  width: 16px; height: 16px; display: flex; align-items: center; justify-content: center;
+  cursor: pointer; color: var(--text-3); font-size: 10px; transition: transform 0.2s;
+  flex-shrink: 0; border: none; background: none; padding: 0;
+}
+.category-fold:hover { color: var(--text-1); }
+.category-fold.collapsed { transform: rotate(-90deg); }
 .category-dot {
   width: 9px; height: 9px; border-radius: 50%;
   background: var(--cat-color); box-shadow: 0 0 6px var(--cat-color); flex-shrink: 0;
@@ -233,6 +310,9 @@ html, body {
 .category-grid {
   display: flex; flex-wrap: wrap; gap: 5px;
   padding: 4px 12px 12px; min-height: 56px;
+}
+.category-grid.collapsed {
+  display: none;
 }
 .category-empty {
   font-family: var(--font-mono); font-size: 10px; color: var(--text-3);
@@ -255,6 +335,8 @@ html, body {
 .ctx-item:hover { background: var(--bg-hover); color: var(--accent); }
 .ctx-item.danger { color: var(--danger); }
 .ctx-item.danger:hover { background: var(--bg-hover); color: var(--danger); }
+.ctx-item.favorite { color: #ffd600; }
+.ctx-item.favorite:hover { background: var(--bg-hover); color: #ffd600; }
 .ctx-sep { height: 1px; background: var(--border); margin: 4px 0; }
 
 /* ═══ MODAL ═══ */
@@ -402,7 +484,7 @@ html, body {
         <svg viewBox="0 0 14 14"><rect x="2" y="2" width="10" height="10" rx="1.5"/></svg>
       </button>
     </div>
-    <div class="logo">SOUNDBOARD</div>
+    <div class="logo">NOB'S SOUNDBOARD</div>
     <div class="topbar-spacer"></div>
     <div class="device-group">
       <label>Output</label>
@@ -422,6 +504,7 @@ html, body {
   <div id="sidebar">
     <div class="sidebar-title">Favorites</div>
     <div class="sidebar-buttons" id="sidebarButtons"></div>
+    <div id="sidebarResize"></div>
   </div>
 
   <div id="main"></div>
@@ -430,6 +513,11 @@ html, body {
     <button class="bb-btn primary" id="addSoundBtn">+ Add Sound</button>
     <button class="bb-btn secondary" id="browseSoundBtn">Browse Local</button>
     <button class="bb-btn secondary" id="addCatBtn">+ Add Category</button>
+    <div class="bb-spacer"></div>
+    <button class="bb-btn guide" id="guideBtn">? Setup Guide</button>
+    <div class="bb-spacer"></div>
+    <button class="bb-btn vm" id="vmPathBtn" title="Set VoiceMeeter .exe location">VM Path</button>
+    <button class="bb-btn vm" id="vmLaunchBtn" title="Launch VoiceMeeter">Launch VM</button>
   </div>
 </div>
 
@@ -444,10 +532,15 @@ let config = {
   volume: 80,
   outputDeviceId: null,
   buttons: [],       // each: { id, name, source, color, category, keybind, favorite, volume, gainDb, resolvedPath }
-  categories: [{ id: 'cat_1', name: 'Category 1', color: '#00c853' }]
+  categories: [{ id: 'cat_1', name: 'Category 1', color: '#00c853' }],
+  customColors: [],  // array of hex strings e.g. ['#ff6600', '#123abc']
+  favoriteOrder: [], // array of button ids for custom ordering in favorites
+  sidebarWidth: 204, // saved sidebar width in px
+  guideSeen: false    // whether the setup guide has been viewed
 };
 
 const downloadingSet = new Set();
+const collapsedCats = new Set(); // track which categories are folded
 
 const PUCK_COLORS = {
   gray:   { main: '#555', hi: '#777', lo: '#3a3a3a' },
@@ -470,8 +563,10 @@ let inputDeviceId = null;
 // Convert dB to linear gain multiplier
 function dbToLinear(db) { return Math.pow(10, db / 20); }
 
-// Track all active audio instances: { btnId, outputAudio, inputAudio, outputGain, inputGain, puckEl }
+// Track all active audio instances
 let activeSounds = [];
+// Track active loops: btnId → { timerId, active }
+let activeLoops = {};
 
 // We need separate AudioContexts per output device since setSinkId is per-context
 const audioContextCache = {}; // deviceId → AudioContext
@@ -493,6 +588,13 @@ function stopAll() {
     if (s.puckEl) s.puckEl.classList.remove('playing');
   });
   activeSounds = [];
+  // Stop all loops
+  Object.keys(activeLoops).forEach(id => {
+    clearTimeout(activeLoops[id].timerId);
+    clearInterval(activeLoops[id].timerId);
+  });
+  activeLoops = {};
+  document.querySelectorAll('.sound-puck.looping').forEach(el => el.classList.remove('looping'));
 }
 
 function stopButton(btnId) {
@@ -500,9 +602,96 @@ function stopButton(btnId) {
   toStop.forEach(s => {
     if (s.outputAudio) { s.outputAudio.pause(); s.outputAudio.currentTime = 0; }
     if (s.inputAudio) { s.inputAudio.pause(); s.inputAudio.currentTime = 0; }
-    if (s.puckEl) s.puckEl.classList.remove('playing');
+    if (s.puckEl) { s.puckEl.classList.remove('playing'); s.puckEl.classList.remove('looping'); }
   });
   activeSounds = activeSounds.filter(s => s.btnId !== btnId);
+  // Stop loop for this button
+  if (activeLoops[btnId]) {
+    clearTimeout(activeLoops[btnId].timerId);
+    clearInterval(activeLoops[btnId].timerId);
+    delete activeLoops[btnId];
+  }
+}
+
+function toggleLoop(btn, puckEl) {
+  if (activeLoops[btn.id]) {
+    // Stop looping
+    stopButton(btn.id);
+    return;
+  }
+  // Start looping
+  startLoop(btn, puckEl);
+}
+
+function startLoop(btn, puckEl) {
+  const interval = btn.loopInterval;
+  if (interval === null) return;
+
+  if (puckEl) puckEl.classList.add('looping');
+
+  if (interval === -1) {
+    // Repeat on end: play once, then replay when it finishes
+    activeLoops[btn.id] = { timerId: null, active: true };
+    playSoundWithLoopOnEnd(btn, puckEl);
+  } else if (interval > 0) {
+    // Play every N seconds
+    playSound(btn, puckEl);
+    const tid = setInterval(() => {
+      if (!activeLoops[btn.id]) return;
+      playSound(btn, puckEl);
+    }, interval * 1000);
+    activeLoops[btn.id] = { timerId: tid, active: true };
+  }
+}
+
+async function playSoundWithLoopOnEnd(btn, puckEl) {
+  if (!activeLoops[btn.id]) return;
+
+  let src = btn.resolvedPath || btn.source;
+  if (!src) return;
+  let url = src;
+  if (src.match(/^[A-Z]:\\/i) || src.startsWith('/')) {
+    url = 'file:///' + src.replace(/\\/g, '/');
+  }
+
+  const master = config.volume / 100;
+  const btnVol = (btn.volume ?? 100) / 100;
+  const gainMult = dbToLinear(btn.gainDb || 0);
+  const finalVol = Math.max(master * btnVol * gainMult, 0);
+  const hasOutput = !!outputDeviceId;
+  const hasInput = !!inputDeviceId;
+  if (!hasOutput && !hasInput) return;
+
+  const entry = { btnId: btn.id, outputAudio: null, inputAudio: null, puckEl: puckEl || null };
+
+  const onEnded = () => {
+    removeFinishedSound(entry);
+    // Replay if loop is still active
+    if (activeLoops[btn.id]) {
+      playSoundWithLoopOnEnd(btn, puckEl);
+    }
+  };
+
+  try {
+    if (hasOutput) {
+      const { audio, gainNode } = createAmplifiedAudio(url, outputDeviceId, finalVol);
+      entry.outputAudio = audio;
+      entry.outputGain = gainNode;
+      audio.play();
+      audio.addEventListener('ended', () => { entry.outputAudio = null; if (!entry.inputAudio) onEnded(); });
+      audio.addEventListener('error', () => { entry.outputAudio = null; if (!entry.inputAudio) onEnded(); });
+    }
+    if (hasInput) {
+      const { audio: audio2, gainNode: gainNode2 } = createAmplifiedAudio(url, inputDeviceId, finalVol);
+      entry.inputAudio = audio2;
+      entry.inputGain = gainNode2;
+      audio2.play();
+      audio2.addEventListener('ended', () => { entry.inputAudio = null; if (!entry.outputAudio) onEnded(); });
+      audio2.addEventListener('error', () => { entry.inputAudio = null; if (!entry.outputAudio) onEnded(); });
+    }
+    activeSounds.push(entry);
+    if (puckEl) puckEl.classList.add('playing');
+  } catch(e) { console.error('Loop play error:', e); }
 }
 
 function isButtonPlaying(btnId) {
@@ -647,12 +836,17 @@ async function loadConfigFromDisk() {
   if (hasElectron) config = await window.api.loadConfig();
   config.buttons = config.buttons || [];
   config.categories = config.categories || [{ id: 'cat_1', name: 'Category 1', color: '#00c853' }];
+  config.customColors = config.customColors || [];
+  config.favoriteOrder = config.favoriteOrder || [];
+  config.sidebarWidth = config.sidebarWidth ?? 204;
+  config.guideSeen = config.guideSeen ?? false;
   config.volume = config.volume ?? 80;
   config.inputDeviceId = config.inputDeviceId || null;
   // Ensure new fields exist on all buttons
   config.buttons.forEach(b => {
     if (b.volume === undefined) b.volume = 100;
     if (b.gainDb === undefined) b.gainDb = 0;
+    if (b.loopInterval === undefined) b.loopInterval = null; // null = no loop, -1 = repeat on end, >0 = seconds
   });
 }
 
@@ -716,8 +910,25 @@ async function downloadAndResolve(btn) {
 // ═══════════════════════════════════════════════════════════════════════
 function uid() { return 'id_' + Math.random().toString(36).substring(2, 10); }
 
-function renderPuck(btn, container) {
-  const colors = PUCK_COLORS[btn.color] || PUCK_COLORS.gray;
+function getColorsForButton(colorVal) {
+  if (PUCK_COLORS[colorVal]) return PUCK_COLORS[colorVal];
+  // Custom hex color — generate hi/lo variants
+  if (colorVal && colorVal.startsWith('#')) {
+    const hex = colorVal.replace('#', '');
+    const r = parseInt(hex.substring(0, 2), 16);
+    const g = parseInt(hex.substring(2, 4), 16);
+    const b = parseInt(hex.substring(4, 6), 16);
+    return {
+      main: colorVal,
+      hi: `rgb(${Math.min(r + 60, 255)}, ${Math.min(g + 60, 255)}, ${Math.min(b + 60, 255)})`,
+      lo: `rgb(${Math.max(r - 40, 0)}, ${Math.max(g - 40, 0)}, ${Math.max(b - 40, 0)})`
+    };
+  }
+  return PUCK_COLORS.gray;
+}
+
+function renderPuck(btn, container, isDragEnabled = true) {
+  const colors = getColorsForButton(btn.color);
   const cat = config.categories.find(c => c.id === btn.category);
   const catColor = cat ? cat.color : '#888';
   const el = document.createElement('div');
@@ -726,17 +937,46 @@ function renderPuck(btn, container) {
   el.style.setProperty('--cat-color', catColor);
   if (btn.favorite) el.classList.add('favorited');
   if (downloadingSet.has(btn.id)) el.classList.add('downloading');
-  // Restore playing state if this button is currently playing
   if (isButtonPlaying(btn.id)) el.classList.add('playing');
+  if (activeLoops[btn.id]) el.classList.add('looping');
+
+  if (isDragEnabled) el.draggable = true;
 
   el.innerHTML = `
+    <span class="loop-icon">\u21BB</span>
     <span class="fav-star">\u2605</span>
     <div class="puck-circle" style="background:${colors.main}; color:${colors.main}; border-bottom: 3px solid ${colors.lo};"></div>
     <div class="puck-label" title="${btn.name}">${btn.name}</div>
   `;
 
-  // Update the puckEl reference in activeSounds so the outline persists after re-render
   activeSounds.forEach(s => { if (s.btnId === btn.id) s.puckEl = el; });
+
+  // Drag & drop
+  if (isDragEnabled) {
+    el.addEventListener('dragstart', (e) => {
+      e.dataTransfer.setData('text/plain', btn.id);
+      e.dataTransfer.effectAllowed = 'move';
+      el.classList.add('dragging');
+      dragSrcBtnId = btn.id;
+    });
+    el.addEventListener('dragend', () => {
+      el.classList.remove('dragging');
+      dragSrcBtnId = null;
+      document.querySelectorAll('.drag-over, .drag-over-empty').forEach(x => x.classList.remove('drag-over', 'drag-over-empty'));
+    });
+    el.addEventListener('dragover', (e) => {
+      e.preventDefault(); e.dataTransfer.dropEffect = 'move';
+      el.classList.add('drag-over');
+    });
+    el.addEventListener('dragleave', () => el.classList.remove('drag-over'));
+    el.addEventListener('drop', (e) => {
+      e.preventDefault(); el.classList.remove('drag-over');
+      const srcId = e.dataTransfer.getData('text/plain');
+      if (srcId && srcId !== btn.id) {
+        reorderButton(srcId, btn.id, btn.category);
+      }
+    });
+  }
 
   el.addEventListener('click', async () => {
     if (downloadingSet.has(btn.id)) return;
@@ -751,7 +991,28 @@ function renderPuck(btn, container) {
     e.preventDefault(); e.stopPropagation();
     const items = [];
     items.push({ label: '\u270F Edit', action: () => openEditButtonModal(btn) });
-    items.push({ label: btn.favorite ? '\u2606 Unfavorite' : '\u2605 Favorite', action: () => { btn.favorite = !btn.favorite; saveConfig(); renderAll(); } });
+    items.push({ label: btn.favorite ? '\u2606 Unfavorite' : '\u2605 Favorite', cls: 'favorite', action: () => { btn.favorite = !btn.favorite; saveConfig(); renderAll(); } });
+
+    // Loop submenu
+    const hasLoop = btn.loopInterval !== null;
+    const loopActive = !!activeLoops[btn.id];
+    const loopLabel = loopActive ? '\u21BB Stop Loop' : (hasLoop ? '\u21BB Start Loop' : '\u21BB Loop');
+    items.push({ label: loopLabel, action: () => {
+      if (loopActive) {
+        // Stop loop
+        stopButton(btn.id);
+      } else if (hasLoop) {
+        // Start loop with current settings
+        toggleLoop(btn, el);
+      } else {
+        // No loop set — open config
+        openLoopModal(btn);
+      }
+    }});
+
+    // Loop config
+    items.push({ label: '\u2699 Loop Settings', action: () => openLoopModal(btn) });
+
     items.push('---');
     items.push({ label: '\uD83D\uDDD1 Delete', danger: true, action: () => { config.buttons = config.buttons.filter(b => b !== btn); saveConfig(); renderAll(); } });
     if (isButtonPlaying(btn.id)) {
@@ -764,19 +1025,170 @@ function renderPuck(btn, container) {
   container.appendChild(el);
 }
 
+// Drag state
+let dragSrcBtnId = null;
+
+function reorderButton(srcId, targetId, targetCatId) {
+  const srcBtn = config.buttons.find(b => b.id === srcId);
+  if (!srcBtn) return;
+
+  const srcIdx = config.buttons.indexOf(srcBtn);
+  const origTargetIdx = config.buttons.findIndex(b => b.id === targetId);
+  srcBtn.category = targetCatId;
+
+  // Remove src first
+  config.buttons.splice(srcIdx, 1);
+
+  // Find target's new index (shifted after removal)
+  let targetIdx = config.buttons.findIndex(b => b.id === targetId);
+
+  // Use original indices to determine direction
+  if (srcIdx < origTargetIdx) {
+    // Dragging forward: insert after target
+    config.buttons.splice(targetIdx + 1, 0, srcBtn);
+  } else {
+    // Dragging backward: insert before target
+    config.buttons.splice(targetIdx, 0, srcBtn);
+  }
+
+  saveConfig(); renderAll();
+}
+
+function moveButtonToCategory(srcId, catId) {
+  const srcBtn = config.buttons.find(b => b.id === srcId);
+  if (!srcBtn) return;
+  srcBtn.category = catId;
+  saveConfig(); renderAll();
+}
+
+function reorderFavorite(srcId, targetId) {
+  const srcIdx = config.favoriteOrder.indexOf(srcId);
+  const origTargetIdx = config.favoriteOrder.indexOf(targetId);
+  if (srcIdx === -1 || origTargetIdx === -1) return;
+  config.favoriteOrder.splice(srcIdx, 1);
+  const newTargetIdx = config.favoriteOrder.indexOf(targetId);
+  if (srcIdx < origTargetIdx) {
+    config.favoriteOrder.splice(newTargetIdx + 1, 0, srcId);
+  } else {
+    config.favoriteOrder.splice(newTargetIdx, 0, srcId);
+  }
+  saveConfig(); renderAll();
+}
+
+function openLoopModal(btn) {
+  const root = document.getElementById('modalRoot');
+  const current = btn.loopInterval;
+  const isRepeat = current === -1;
+  const isInterval = current !== null && current > 0;
+  const intervalVal = isInterval ? current : 5;
+
+  root.innerHTML = `
+    <div class="modal-overlay" id="modalOverlay">
+      <div class="modal" style="width:360px;">
+        <h2>Loop Settings</h2>
+        <div class="modal-field">
+          <label>Mode</label>
+          <select id="loopMode" style="width:100%;background:var(--bg-card);border:1px solid var(--border);border-radius:6px;color:var(--text-1);font-family:var(--font-mono);font-size:12px;padding:7px 10px;outline:none;">
+            <option value="none" ${current === null ? 'selected' : ''}>No Loop</option>
+            <option value="repeat" ${isRepeat ? 'selected' : ''}>Repeat on End</option>
+            <option value="interval" ${isInterval ? 'selected' : ''}>Every X Seconds</option>
+          </select>
+        </div>
+        <div class="modal-field" id="intervalField" style="display:${isInterval ? 'block' : 'none'};">
+          <label>Interval (seconds)</label>
+          <input type="number" id="loopSeconds" value="${intervalVal}" min="0.1" step="0.1"
+            style="width:100%;background:var(--bg-card);border:1px solid var(--border);border-radius:6px;color:var(--text-1);font-family:var(--font-mono);font-size:12px;padding:7px 10px;outline:none;">
+        </div>
+        <div class="modal-actions">
+          <button class="cancel-btn" id="loopCancel">Cancel</button>
+          <button class="save-btn" id="loopSave">Save</button>
+        </div>
+      </div>
+    </div>
+  `;
+
+  document.getElementById('loopMode').addEventListener('change', (e) => {
+    document.getElementById('intervalField').style.display = e.target.value === 'interval' ? 'block' : 'none';
+  });
+
+  document.getElementById('loopSave').addEventListener('click', () => {
+    const mode = document.getElementById('loopMode').value;
+    if (mode === 'none') btn.loopInterval = null;
+    else if (mode === 'repeat') btn.loopInterval = -1;
+    else {
+      const secs = parseFloat(document.getElementById('loopSeconds').value);
+      btn.loopInterval = (isNaN(secs) || secs <= 0) ? 5 : secs;
+    }
+    saveConfig(); renderAll(); closeModal();
+  });
+
+  document.getElementById('loopCancel').addEventListener('click', closeModal);
+  setupModalOverlayDismiss();
+}
+
 function renderCategory(cat, buttons) {
   const catBtns = buttons.filter(b => b.category === cat.id);
+  const isCollapsed = collapsedCats.has(cat.id);
   const frame = document.createElement('div');
   frame.className = 'category-frame';
   frame.style.setProperty('--cat-color', cat.color);
+  frame.dataset.catId = cat.id;
+
+  // Category drag-and-drop (reorder categories) — drag starts from header only
+  frame.addEventListener('dragstart', (e) => {
+    // Don't interfere with puck drags
+    if (e.target.closest('.sound-puck')) return;
+    if (!e.target.closest('.category-header')) { e.preventDefault(); return; }
+    e.dataTransfer.setData('text/cat-id', cat.id);
+    e.dataTransfer.effectAllowed = 'move';
+    requestAnimationFrame(() => frame.classList.add('dragging'));
+  });
+  frame.addEventListener('dragend', () => {
+    frame.classList.remove('dragging');
+    document.querySelectorAll('.cat-drag-over').forEach(x => x.classList.remove('cat-drag-over'));
+  });
+  frame.addEventListener('dragover', (e) => {
+    if (e.dataTransfer.types.includes('text/cat-id')) {
+      e.preventDefault(); e.dataTransfer.dropEffect = 'move';
+      frame.classList.add('cat-drag-over');
+    }
+  });
+  frame.addEventListener('dragleave', (e) => {
+    if (!frame.contains(e.relatedTarget)) frame.classList.remove('cat-drag-over');
+  });
+  frame.addEventListener('drop', (e) => {
+    frame.classList.remove('cat-drag-over');
+    const srcCatId = e.dataTransfer.getData('text/cat-id');
+    if (srcCatId && srcCatId !== cat.id) {
+      e.preventDefault(); e.stopPropagation();
+      reorderCategory(srcCatId, cat.id);
+      return;
+    }
+  });
 
   const header = document.createElement('div');
   header.className = 'category-header';
-  header.innerHTML = `
-    <div class="category-dot"></div>
-    <div class="category-name">${cat.name}</div>
-    <div class="category-count">${catBtns.length} sound${catBtns.length !== 1 ? 's' : ''}</div>
-  `;
+  header.draggable = true;
+
+  const foldBtn = document.createElement('button');
+  foldBtn.className = 'category-fold' + (isCollapsed ? ' collapsed' : '');
+  foldBtn.innerHTML = '\u25BC';
+  foldBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    if (collapsedCats.has(cat.id)) collapsedCats.delete(cat.id);
+    else collapsedCats.add(cat.id);
+    renderAll();
+  });
+
+  header.appendChild(foldBtn);
+  const dot = document.createElement('div'); dot.className = 'category-dot';
+  header.appendChild(dot);
+  const nameEl = document.createElement('div'); nameEl.className = 'category-name'; nameEl.textContent = cat.name;
+  header.appendChild(nameEl);
+  const countEl = document.createElement('div'); countEl.className = 'category-count';
+  countEl.textContent = catBtns.length + ' sound' + (catBtns.length !== 1 ? 's' : '');
+  header.appendChild(countEl);
+
   header.addEventListener('contextmenu', (e) => {
     e.preventDefault(); e.stopPropagation();
     showCategoryMenu(e, cat);
@@ -784,7 +1196,25 @@ function renderCategory(cat, buttons) {
   frame.appendChild(header);
 
   const grid = document.createElement('div');
-  grid.className = 'category-grid';
+  grid.className = 'category-grid' + (isCollapsed ? ' collapsed' : '');
+  grid.dataset.catId = cat.id;
+
+  grid.addEventListener('dragover', (e) => {
+    if (e.dataTransfer.types.includes('text/plain')) {
+      e.preventDefault(); e.dataTransfer.dropEffect = 'move';
+      if (catBtns.length === 0) grid.classList.add('drag-over-empty');
+    }
+  });
+  grid.addEventListener('dragleave', () => grid.classList.remove('drag-over-empty'));
+  grid.addEventListener('drop', (e) => {
+    grid.classList.remove('drag-over-empty');
+    const srcId = e.dataTransfer.getData('text/plain');
+    if (srcId) {
+      e.preventDefault(); e.stopPropagation();
+      moveButtonToCategory(srcId, cat.id);
+    }
+  });
+
   grid.addEventListener('contextmenu', (e) => {
     if (e.target === grid || e.target.classList.contains('category-empty')) {
       e.preventDefault(); e.stopPropagation();
@@ -799,6 +1229,21 @@ function renderCategory(cat, buttons) {
   }
   frame.appendChild(grid);
   return frame;
+}
+
+function reorderCategory(srcId, targetId) {
+  const srcIdx = config.categories.findIndex(c => c.id === srcId);
+  const origTargetIdx = config.categories.findIndex(c => c.id === targetId);
+  if (srcIdx === -1 || origTargetIdx === -1) return;
+  const [src] = config.categories.splice(srcIdx, 1);
+  const newTargetIdx = config.categories.findIndex(c => c.id === targetId);
+  // Use original indices to determine direction
+  if (srcIdx < origTargetIdx) {
+    config.categories.splice(newTargetIdx + 1, 0, src);
+  } else {
+    config.categories.splice(newTargetIdx, 0, src);
+  }
+  saveConfig(); renderAll();
 }
 
 function showCategoryMenu(e, cat) {
@@ -820,11 +1265,54 @@ function renderAll() {
   const sidebar = document.getElementById('sidebarButtons');
   sidebar.innerHTML = '';
 
-  const favs = config.buttons.filter(b => b.favorite);
-  if (favs.length === 0) {
+  // Build ordered favorites list
+  const favBtns = config.buttons.filter(b => b.favorite);
+  // Clean up favoriteOrder: remove ids that are no longer favorites
+  config.favoriteOrder = config.favoriteOrder.filter(id => favBtns.some(b => b.id === id));
+  // Add any new favorites not yet in the order
+  favBtns.forEach(b => {
+    if (!config.favoriteOrder.includes(b.id)) config.favoriteOrder.push(b.id);
+  });
+  // Sort by favoriteOrder
+  const orderedFavs = config.favoriteOrder
+    .map(id => favBtns.find(b => b.id === id))
+    .filter(Boolean);
+
+  if (orderedFavs.length === 0) {
     sidebar.innerHTML = '<div class="sidebar-empty">Right-click a sound and choose Favorite to pin it here</div>';
   } else {
-    favs.forEach(btn => renderPuck(btn, sidebar));
+    orderedFavs.forEach(btn => {
+      // Render puck with drag enabled for favorites reordering
+      renderPuck(btn, sidebar, false);
+      const el = sidebar.lastElementChild;
+      el.draggable = true;
+
+      el.addEventListener('dragstart', (e) => {
+        e.dataTransfer.setData('text/fav-id', btn.id);
+        e.dataTransfer.effectAllowed = 'move';
+        el.classList.add('dragging');
+        e.stopPropagation();
+      });
+      el.addEventListener('dragend', () => {
+        el.classList.remove('dragging');
+        sidebar.querySelectorAll('.drag-over').forEach(x => x.classList.remove('drag-over'));
+      });
+      el.addEventListener('dragover', (e) => {
+        if (e.dataTransfer.types.includes('text/fav-id')) {
+          e.preventDefault(); e.dataTransfer.dropEffect = 'move';
+          el.classList.add('drag-over');
+        }
+      });
+      el.addEventListener('dragleave', () => el.classList.remove('drag-over'));
+      el.addEventListener('drop', (e) => {
+        el.classList.remove('drag-over');
+        const srcId = e.dataTransfer.getData('text/fav-id');
+        if (srcId && srcId !== btn.id) {
+          e.preventDefault(); e.stopPropagation();
+          reorderFavorite(srcId, btn.id);
+        }
+      });
+    });
   }
 
   config.categories.forEach(cat => {
@@ -845,7 +1333,7 @@ function showContextMenu(x, y, items) {
       menu.appendChild(Object.assign(document.createElement('div'), { className: 'ctx-sep' }));
     } else {
       const btn = document.createElement('button');
-      btn.className = 'ctx-item' + (item.danger ? ' danger' : '');
+      btn.className = 'ctx-item' + (item.danger ? ' danger' : '') + (item.cls ? ' ' + item.cls : '');
       btn.textContent = item.label;
       btn.addEventListener('click', () => { hideContextMenu(); item.action(); });
       menu.appendChild(btn);
@@ -860,12 +1348,40 @@ function showContextMenu(x, y, items) {
   });
 }
 function hideContextMenu() { document.getElementById('ctxMenu').classList.remove('show'); }
-document.addEventListener('click', hideContextMenu);
+// Require a full click (mousedown then mouseup) outside the menu to dismiss it
+let ctxMouseDownOutside = false;
+document.addEventListener('mousedown', (e) => {
+  const menu = document.getElementById('ctxMenu');
+  if (menu.classList.contains('show') && !menu.contains(e.target)) {
+    ctxMouseDownOutside = true;
+  } else {
+    ctxMouseDownOutside = false;
+  }
+});
+document.addEventListener('mouseup', (e) => {
+  const menu = document.getElementById('ctxMenu');
+  if (ctxMouseDownOutside && menu.classList.contains('show') && !menu.contains(e.target)) {
+    hideContextMenu();
+  }
+  ctxMouseDownOutside = false;
+});
 
 // ═══════════════════════════════════════════════════════════════════════
 // MODALS
 // ═══════════════════════════════════════════════════════════════════════
 function closeModal() { document.getElementById('modalRoot').innerHTML = ''; keybindListening = false; keybindLiveCallback = null; }
+
+// Require full click (mousedown+mouseup on overlay) to dismiss modal
+function setupModalOverlayDismiss() {
+  const overlay = document.getElementById('modalOverlay');
+  if (!overlay) return;
+  let mdOnOverlay = false;
+  overlay.addEventListener('mousedown', (e) => { mdOnOverlay = (e.target.id === 'modalOverlay'); });
+  overlay.addEventListener('mouseup', (e) => {
+    if (mdOnOverlay && e.target.id === 'modalOverlay') closeModal();
+    mdOnOverlay = false;
+  });
+}
 
 // ── Keybind recording state ──
 let keybindListening = false;
@@ -935,17 +1451,135 @@ function openEditButtonModal(existingBtn = null, defaultCatId = null) {
 
   // Colors
   const colorsEl = document.getElementById('mColors');
-  Object.entries(PUCK_COLORS).forEach(([name, c]) => {
-    const opt = document.createElement('div');
-    opt.className = 'color-opt' + (btn.color === name ? ' selected' : '');
-    opt.style.background = c.main; opt.style.color = c.main;
-    opt.dataset.color = name;
-    opt.addEventListener('click', () => {
-      colorsEl.querySelectorAll('.color-opt').forEach(o => o.classList.remove('selected'));
-      opt.classList.add('selected');
+
+  // Backward compat: if button uses a hex color not in customColors, add it
+  if (btn.color && btn.color.startsWith('#') && !config.customColors.includes(btn.color)) {
+    config.customColors.push(btn.color);
+    saveConfig();
+  }
+
+  let selectedColor = btn.color || 'gray'; // tracks the currently selected color across re-renders
+  // If selectedColor is a custom hex, track which index it came from to handle duplicates
+  let selectedCustomIdx = -1;
+  if (selectedColor.startsWith('#')) {
+    selectedCustomIdx = config.customColors.indexOf(selectedColor);
+  }
+
+  function renderColorSwatches() {
+    colorsEl.innerHTML = '';
+    let hasSelected = false;
+
+    // Built-in colors
+    Object.entries(PUCK_COLORS).forEach(([name, c]) => {
+      const isSelected = !hasSelected && selectedColor === name;
+      if (isSelected) hasSelected = true;
+      const opt = document.createElement('div');
+      opt.className = 'color-opt' + (isSelected ? ' selected' : '');
+      opt.style.background = c.main; opt.style.color = c.main;
+      opt.dataset.color = name;
+      opt.addEventListener('click', () => {
+        selectedColor = name;
+        selectedCustomIdx = -1;
+        colorsEl.querySelectorAll('.color-opt').forEach(o => o.classList.remove('selected'));
+        opt.classList.add('selected');
+      });
+      colorsEl.appendChild(opt);
     });
-    colorsEl.appendChild(opt);
-  });
+
+    // Custom colors from config
+    config.customColors.forEach((hex, idx) => {
+      // Only select the first matching swatch (or the specific index if tracked)
+      const isSelected = !hasSelected && (
+        (selectedCustomIdx >= 0 && idx === selectedCustomIdx) ||
+        (selectedCustomIdx < 0 && selectedColor === hex)
+      );
+      if (isSelected) hasSelected = true;
+      const opt = document.createElement('div');
+      opt.className = 'color-opt' + (isSelected ? ' selected' : '');
+      opt.style.background = hex; opt.style.color = hex;
+      opt.dataset.color = hex;
+      opt.addEventListener('click', () => {
+        selectedColor = hex;
+        selectedCustomIdx = idx;
+        colorsEl.querySelectorAll('.color-opt').forEach(o => o.classList.remove('selected'));
+        opt.classList.add('selected');
+      });
+      opt.addEventListener('contextmenu', (e) => {
+        e.preventDefault(); e.stopPropagation();
+        showContextMenu(e.clientX, e.clientY, [
+          { label: '\u270F Change Color', action: () => {
+            openCustomColorEditor(hex, idx);
+          }},
+          { label: '\uD83D\uDDD1 Remove Color', danger: true, action: () => {
+            // If the removed color was selected, keep selectedColor as-is
+            // (button keeps its color, just the palette entry is gone)
+            if (selectedCustomIdx === idx) {
+              selectedCustomIdx = -1; // no longer tracking an index
+            } else if (selectedCustomIdx > idx) {
+              selectedCustomIdx--; // adjust for shifted indices
+            }
+            config.customColors.splice(idx, 1);
+            saveConfig();
+            renderColorSwatches();
+          }},
+        ]);
+      });
+      colorsEl.appendChild(opt);
+    });
+
+    // + button to add new custom color
+    const addBtn = document.createElement('div');
+    addBtn.className = 'color-opt';
+    addBtn.style.background = 'var(--bg-card)'; addBtn.style.border = '2px dashed var(--text-3)';
+    addBtn.style.display = 'flex'; addBtn.style.alignItems = 'center'; addBtn.style.justifyContent = 'center';
+    addBtn.style.fontSize = '14px'; addBtn.style.color = 'var(--text-3)'; addBtn.style.fontWeight = 'bold';
+    addBtn.textContent = '+';
+    addBtn.addEventListener('click', () => {
+      // Add a new custom color and open the editor for it
+      const newHex = '#ff6600';
+      config.customColors.push(newHex);
+      selectedColor = newHex;
+      selectedCustomIdx = config.customColors.length - 1;
+      saveConfig();
+      renderColorSwatches();
+      // Auto-open the editor for the new color
+      const newIdx = config.customColors.length - 1;
+      openCustomColorEditor(newHex, newIdx);
+    });
+    colorsEl.appendChild(addBtn);
+  }
+
+  function openCustomColorEditor(currentHex, idx) {
+    // Remove any existing inline editor
+    const existing = colorsEl.querySelector('.custom-color-editor');
+    if (existing) existing.remove();
+
+    const wrap = document.createElement('div');
+    wrap.className = 'custom-color-editor';
+    wrap.style.cssText = 'display:flex;align-items:center;gap:6px;width:100%;margin-top:6px;';
+    const inp = document.createElement('input');
+    inp.type = 'color'; inp.value = currentHex;
+    inp.style.cssText = 'width:36px;height:26px;border:1px solid var(--border);border-radius:6px;background:var(--bg-card);cursor:pointer;padding:1px;';
+    const applyBtn = document.createElement('button');
+    applyBtn.textContent = 'Apply';
+    applyBtn.style.cssText = 'background:var(--accent);color:#000;border:none;border-radius:6px;font-family:var(--font-mono);font-size:10px;font-weight:600;padding:4px 10px;cursor:pointer;';
+
+    function doApply() {
+      config.customColors[idx] = inp.value;
+      selectedColor = inp.value;
+      selectedCustomIdx = idx;
+      saveConfig();
+      renderColorSwatches();
+    }
+    applyBtn.addEventListener('click', doApply);
+    inp.addEventListener('change', doApply);
+
+    wrap.appendChild(inp);
+    wrap.appendChild(applyBtn);
+    colorsEl.appendChild(wrap);
+  }
+
+  renderColorSwatches();
 
   // Browse
   document.getElementById('mBrowse').addEventListener('click', async () => {
@@ -1082,7 +1716,7 @@ function openEditButtonModal(existingBtn = null, defaultCatId = null) {
     const name = document.getElementById('mName').value.trim();
     const source = document.getElementById('mSource').value.trim();
     if (!name || !source) return;
-    const color = colorsEl.querySelector('.color-opt.selected')?.dataset.color || 'gray';
+    const color = selectedColor;
     const category = document.getElementById('mCategory').value;
     const volume = parseInt(volSlider.value);
     const gainDb = currentGain;
@@ -1092,7 +1726,7 @@ function openEditButtonModal(existingBtn = null, defaultCatId = null) {
     } else {
       config.buttons.push({
         id: uid(), name, source, color, category,
-        keybind: recordedKeybind, favorite: false, volume, gainDb
+        keybind: recordedKeybind, favorite: false, volume, gainDb, loopInterval: null
       });
     }
     keybindListening = false; keybindCallback = null; keybindLiveCallback = null;
@@ -1100,9 +1734,7 @@ function openEditButtonModal(existingBtn = null, defaultCatId = null) {
   });
 
   document.getElementById('mCancel').addEventListener('click', closeModal);
-  document.getElementById('modalOverlay').addEventListener('click', (e) => {
-    if (e.target.id === 'modalOverlay') closeModal();
-  });
+  setupModalOverlayDismiss();
   document.getElementById('mName').focus();
 }
 
@@ -1139,7 +1771,7 @@ function openEditCategoryModal(existingCat = null) {
     saveConfig(); renderAll(); closeModal();
   });
   document.getElementById('mcCancel').addEventListener('click', closeModal);
-  document.getElementById('modalOverlay').addEventListener('click', (e) => { if (e.target.id === 'modalOverlay') closeModal(); });
+  setupModalOverlayDismiss();
   document.getElementById('mcName').focus();
 }
 
@@ -1271,6 +1903,167 @@ function updateLiveModifiers() {
 }
 
 // ═══════════════════════════════════════════════════════════════════════
+// SIDEBAR RESIZE
+// ═══════════════════════════════════════════════════════════════════════
+function setupSidebarResize() {
+  const handle = document.getElementById('sidebarResize');
+  const appEl = document.getElementById('app');
+  let isResizing = false;
+
+  // Restore saved width
+  appEl.style.setProperty('--sidebar-width', config.sidebarWidth + 'px');
+
+  handle.addEventListener('mousedown', (e) => {
+    e.preventDefault();
+    isResizing = true;
+    handle.classList.add('active');
+    document.body.style.cursor = 'col-resize';
+  });
+
+  document.addEventListener('mousemove', (e) => {
+    if (!isResizing) return;
+    const newWidth = Math.max(120, Math.min(e.clientX, window.innerWidth - 300));
+    appEl.style.setProperty('--sidebar-width', newWidth + 'px');
+  });
+
+  document.addEventListener('mouseup', () => {
+    if (isResizing) {
+      isResizing = false;
+      handle.classList.remove('active');
+      document.body.style.cursor = '';
+      // Save the current width
+      const computed = getComputedStyle(appEl).getPropertyValue('--sidebar-width');
+      config.sidebarWidth = parseInt(computed) || 204;
+      saveConfig();
+    }
+  });
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// AUTO-SCROLL DURING DRAG (categories + pucks + favorites)
+// ═══════════════════════════════════════════════════════════════════════
+let dragScrollTimer = null;
+let dragScrollTarget = null;
+let dragScrollDir = 0;
+
+document.addEventListener('dragover', (e) => {
+  const main = document.getElementById('main');
+  const sidebar = document.getElementById('sidebarButtons');
+  const scrollMargin = 50;
+  const scrollSpeed = 8;
+
+  let newTarget = null;
+  let newDir = 0;
+
+  // Check main area
+  if (main) {
+    const rect = main.getBoundingClientRect();
+    if (e.clientX > rect.left && e.clientX < rect.right) {
+      if (e.clientY > rect.bottom - scrollMargin && e.clientY < rect.bottom) {
+        newTarget = main; newDir = 1;
+      } else if (e.clientY < rect.top + scrollMargin && e.clientY > rect.top) {
+        newTarget = main; newDir = -1;
+      }
+    }
+  }
+
+  // Check sidebar
+  if (!newTarget && sidebar) {
+    const rect = sidebar.getBoundingClientRect();
+    if (e.clientX > rect.left && e.clientX < rect.right) {
+      if (e.clientY > rect.bottom - scrollMargin && e.clientY < rect.bottom) {
+        newTarget = sidebar; newDir = 1;
+      } else if (e.clientY < rect.top + scrollMargin && e.clientY > rect.top) {
+        newTarget = sidebar; newDir = -1;
+      }
+    }
+  }
+
+  // If target or direction changed, restart the timer
+  if (newTarget !== dragScrollTarget || newDir !== dragScrollDir) {
+    clearInterval(dragScrollTimer);
+    dragScrollTimer = null;
+    dragScrollTarget = newTarget;
+    dragScrollDir = newDir;
+    if (newTarget && newDir) {
+      dragScrollTimer = setInterval(() => {
+        if (dragScrollTarget) dragScrollTarget.scrollTop += scrollSpeed * dragScrollDir;
+      }, 16);
+    }
+  }
+});
+
+function stopDragScroll() {
+  clearInterval(dragScrollTimer);
+  dragScrollTimer = null;
+  dragScrollTarget = null;
+  dragScrollDir = 0;
+}
+document.addEventListener('dragend', stopDragScroll);
+document.addEventListener('drop', stopDragScroll);
+
+// ═══════════════════════════════════════════════════════════════════════
+// SETUP GUIDE
+// ═══════════════════════════════════════════════════════════════════════
+function openGuideModal() {
+  const root = document.getElementById('modalRoot');
+  root.innerHTML = `
+    <div class="modal-overlay" id="modalOverlay">
+      <div class="modal" style="width:520px;">
+        <h2>Setup Guide — Mic Routing</h2>
+        <div class="guide-content">
+          <p>To play sounds through your microphone in apps like Discord, you need <strong>VoiceMeeter</strong> (free virtual audio mixer).</p>
+
+          <h3>1. Install VoiceMeeter</h3>
+          <div class="step">
+            <div class="step-num">1</div>
+            <div class="step-text">Download and install <strong>VoiceMeeter</strong> from <span style="color:var(--accent)">vb-audio.com/Voicemeeter</span>. Restart your PC after installing.</div>
+          </div>
+
+          <h3>2. Configure VoiceMeeter</h3>
+          <div class="step">
+            <div class="step-num">2</div>
+            <div class="step-text">Open VoiceMeeter. Under <strong>Hardware Input — Stereo Input 1</strong>, select your real microphone.</div>
+          </div>
+
+          <h3>3. Configure Nob's Soundboard</h3>
+          <div class="step">
+            <div class="step-num">3</div>
+            <div class="step-text">In this app's top bar, set <strong>Mic Route</strong> to <strong>VoiceMeeter Input</strong> (or "CABLE Input").</div>
+          </div>
+          <div class="step">
+            <div class="step-num">4</div>
+            <div class="step-text">Set <strong>Output</strong> to your headphones/speakers (so you can hear the sounds too).</div>
+          </div>
+
+          <h3>4. Configure Your Apps</h3>
+          <div class="step">
+            <div class="step-num">5</div>
+            <div class="step-text">In Discord (or any app), set your <strong>microphone/input</strong> to <strong>VoiceMeeter Out B1</strong>.</div>
+          </div>
+
+          <div class="note">
+            <strong>Important:</strong> VoiceMeeter must be running for mic routing to work. You can use the <strong>Launch VM</strong> button in the bottom bar, or set it to auto-start with Windows.
+          </div>
+
+          <h3>5. Clean Up (Optional)</h3>
+          <div class="tip">
+            To hide the extra audio devices VoiceMeeter creates: open <strong>Control Panel → Sound</strong>. In both <strong>Playback</strong> and <strong>Recording</strong> tabs, right-click and disable all VoiceMeeter devices except:<br>
+            • <strong>Playback:</strong> keep <em>VoiceMeeter Out B1</em><br>
+            • <strong>Recording:</strong> keep <em>VoiceMeeter Input</em>
+          </div>
+        </div>
+        <div class="modal-actions">
+          <button class="save-btn" id="guideClose">Got it</button>
+        </div>
+      </div>
+    </div>
+  `;
+  document.getElementById('guideClose').addEventListener('click', closeModal);
+  setupModalOverlayDismiss();
+}
+
+// ═══════════════════════════════════════════════════════════════════════
 // INIT
 // ═══════════════════════════════════════════════════════════════════════
 async function init() {
@@ -1279,7 +2072,30 @@ async function init() {
   renderAll();
 
   const outSel = document.getElementById('outputSelect');
-  if (config.outputDeviceId) outSel.value = config.outputDeviceId;
+  if (config.outputDeviceId) {
+    outSel.value = config.outputDeviceId;
+  } else {
+    // Auto-select the user's current default output device
+    try {
+      const defaultDevice = await navigator.mediaDevices.enumerateDevices()
+        .then(devices => devices.find(d => d.kind === 'audiooutput' && d.deviceId === 'default'));
+      if (defaultDevice) {
+        // Find the real device matching 'default' — browsers often alias it
+        const realDefault = [...outSel.options].find(o => o.value && o.value !== 'default' && o.textContent.includes('Default')) ||
+                            [...outSel.options].find(o => o.value && o.value !== '');
+        if (realDefault) {
+          outSel.value = realDefault.value;
+          config.outputDeviceId = realDefault.value;
+          saveConfig();
+        }
+      } else if (outSel.options.length > 1) {
+        // Just pick the first non-empty option
+        outSel.value = outSel.options[1].value;
+        config.outputDeviceId = outSel.options[1].value;
+        saveConfig();
+      }
+    } catch(e) { /* ignore */ }
+  }
   outputDeviceId = outSel.value || null;
 
   const inSel = document.getElementById('inputSelect');
@@ -1327,10 +2143,30 @@ async function init() {
         name: isPath ? f.split(/[/\\]/).pop().replace(/\.[^.]+$/, '') : f.name.replace(/\.[^.]+$/, ''),
         source: isPath ? f : f.url,
         color: 'gray', category: catId, keybind: '', favorite: false,
-        volume: 100, gainDb: 0
+        volume: 100, gainDb: 0, loopInterval: null
       });
     });
     saveConfig(); renderAll();
+  });
+
+  // VoiceMeeter buttons
+  document.getElementById('vmPathBtn').addEventListener('click', async () => {
+    if (hasElectron) {
+      const path = await window.api.pickVoicemeeterPath();
+      if (path) {
+        config.voicemeeterPath = path;
+        saveConfig();
+      }
+    }
+  });
+  document.getElementById('vmLaunchBtn').addEventListener('click', () => {
+    if (hasElectron) {
+      if (!config.voicemeeterPath) {
+        alert('Set VoiceMeeter path first (VM Path button)');
+        return;
+      }
+      window.api.launchVoicemeeter(config.voicemeeterPath);
+    }
   });
 
   if (hasElectron) {
@@ -1338,6 +2174,20 @@ async function init() {
     document.getElementById('winMin').addEventListener('click', () => window.api.winMinimize());
     document.getElementById('winMax').addEventListener('click', () => window.api.winMaximize());
   }
+
+  setupSidebarResize();
+
+  // Setup guide button
+  const guideBtn = document.getElementById('guideBtn');
+  if (!config.guideSeen) guideBtn.classList.add('blink');
+  guideBtn.addEventListener('click', () => {
+    guideBtn.classList.remove('blink');
+    if (!config.guideSeen) {
+      config.guideSeen = true;
+      saveConfig();
+    }
+    openGuideModal();
+  });
 }
 
 init();

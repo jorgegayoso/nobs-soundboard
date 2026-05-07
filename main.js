@@ -7,12 +7,15 @@ const { spawn } = require('child_process');
 const APP_ROOT = app.isPackaged
   ? path.dirname(app.getPath('exe'))
   : __dirname;
-const SOUNDS_DIR = path.join(APP_ROOT, 'sounds');
-const CONFIG_PATH = path.join(APP_ROOT, 'soundboard-config.json');
+// Store config and sounds in user data so they persist across updates/reinstalls
+const USER_DATA = path.join(app.getPath('appData'), 'Nob', 'soundboard');
+const SOUNDS_DIR = path.join(USER_DATA, 'sounds');
+const CONFIG_PATH = path.join(USER_DATA, 'soundboard-config.json');
 const ICON_PATH = path.join(__dirname, 'icon.png');
 const TRAY_ICON_PATH = path.join(__dirname, 'tray-icon.png');
 
 function ensureDirs() {
+  if (!fs.existsSync(USER_DATA)) fs.mkdirSync(USER_DATA, { recursive: true });
   if (!fs.existsSync(SOUNDS_DIR)) fs.mkdirSync(SOUNDS_DIR, { recursive: true });
 }
 
@@ -74,11 +77,11 @@ function createWindow() {
 function createTray() {
   const icon = nativeImage.createFromPath(TRAY_ICON_PATH);
   tray = new Tray(icon);
-  tray.setToolTip('Soundboard');
+  tray.setToolTip("Nob's Soundboard");
 
   const contextMenu = Menu.buildFromTemplate([
     {
-      label: 'Show Soundboard',
+      label: "Show Nob's Soundboard",
       click: () => {
         if (mainWindow) {
           mainWindow.show();
@@ -361,3 +364,29 @@ ipcMain.handle('download-url', async (_, { url, categoryName, fileName }) => {
 });
 
 ipcMain.handle('get-sounds-dir', () => SOUNDS_DIR);
+
+// ── IPC: VoiceMeeter ───────────────────────────────────────────────────
+ipcMain.handle('pick-voicemeeter-path', async () => {
+  const result = await dialog.showOpenDialog(mainWindow, {
+    title: 'Select VoiceMeeter Executable',
+    filters: [
+      { name: 'Executable', extensions: ['exe'] },
+      { name: 'All Files', extensions: ['*'] }
+    ],
+    properties: ['openFile']
+  });
+  return result.canceled ? null : result.filePaths[0];
+});
+
+ipcMain.handle('launch-voicemeeter', async (_, vmPath) => {
+  if (!vmPath || !fs.existsSync(vmPath)) {
+    return { success: false, error: 'VoiceMeeter path not found' };
+  }
+  try {
+    const proc = spawn(vmPath, [], { detached: true, stdio: 'ignore', windowsHide: false });
+    proc.unref();
+    return { success: true };
+  } catch(e) {
+    return { success: false, error: e.message };
+  }
+});
