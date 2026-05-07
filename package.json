@@ -37,6 +37,7 @@
     "electron-builder": "^24.0.0"
   },
   "dependencies": {
-    "uiohook-napi": "^1.5.4"
+    "uiohook-napi": "^1.5.4",
+    "koffi": "^2.9.0"
   }
 }

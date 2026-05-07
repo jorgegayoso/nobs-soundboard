@@ -9,6 +9,11 @@ contextBridge.exposeInMainWorld('api', {
   getSoundsDir: () => ipcRenderer.invoke('get-sounds-dir'),
   pickVoicemeeterPath: () => ipcRenderer.invoke('pick-voicemeeter-path'),
   launchVoicemeeter: (path) => ipcRenderer.invoke('launch-voicemeeter', path),
+  vmConnect: () => ipcRenderer.invoke('vm-connect'),
+  vmSetStripDevice: ({ stripIndex, deviceName }) =>
+    ipcRenderer.invoke('vm-set-strip-device', { stripIndex, deviceName }),
+  vmGetStatus: () => ipcRenderer.invoke('vm-get-status'),
+  onVmStatus: (cb) => ipcRenderer.on('vm-status', (_, status) => cb(status)),
   openExternal: (url) => ipcRenderer.invoke('open-external', url),
   fetchUrlTitle: (url) => ipcRenderer.invoke('fetch-url-title', url),
   winMinimize:  () => ipcRenderer.send('win-minimize'),

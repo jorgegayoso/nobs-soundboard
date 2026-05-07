@@ -121,6 +121,18 @@ html, body {
 }
 .stop-btn:hover { background: var(--danger-dim); }
 
+.rec-toggle {
+  background: var(--bg-card); border: 1px solid var(--border); color: var(--text-3);
+  font-family: var(--font-mono); font-weight: 700; font-size: 10px;
+  padding: 5px 10px; border-radius: 5px; cursor: pointer;
+  transition: all 0.15s; white-space: nowrap;
+}
+.rec-toggle:hover { background: var(--bg-hover); color: var(--text-1); }
+.rec-toggle.active {
+  background: var(--accent); color: #000; border-color: var(--accent);
+}
+.rec-toggle.active:hover { background: var(--accent-dim); }
+
 /* ═══ SIDEBAR ═══ */
 #sidebar {
   grid-area: sidebar; background: var(--bg-surface);
@@ -462,6 +474,61 @@ html, body {
 .modal-actions .cancel-btn { background: var(--bg-card); color: var(--text-2); border: 1px solid var(--border); }
 .modal-actions .cancel-btn:hover { background: var(--bg-hover); color: var(--text-1); }
 
+/* ═══ BULK SELECT / SHAKE MODE ═══ */
+@keyframes shake {
+  0%  { transform: rotate(0deg); }
+  20% { transform: rotate(-0.8deg); }
+  40% { transform: rotate(0.8deg); }
+  60% { transform: rotate(-0.5deg); }
+  80% { transform: rotate(0.5deg); }
+  100%{ transform: rotate(0deg); }
+}
+.shake-mode .sound-puck {
+  cursor: pointer !important;
+  animation: shake 0.35s ease-in-out infinite;
+  animation-delay: calc(var(--shake-delay, 0) * 1ms);
+  touch-action: none;
+}
+.shake-mode .sound-puck:hover { transform: none; }
+.shake-mode .sound-puck:active { transform: none; }
+.shake-mode .sound-puck.bulk-selected {
+  outline: 2px solid var(--accent);
+  outline-offset: -1px;
+  box-shadow: 0 0 10px var(--accent-glow);
+  animation: none;
+  transform: scale(0.95);
+}
+
+#bulkToolbar {
+  display: none;
+  position: fixed; top: 48px; right: 12px; z-index: 50;
+  flex-direction: column;
+  background: var(--bg-surface); border: 1px solid var(--border-light);
+  border-radius: var(--radius); padding: 6px;
+  box-shadow: var(--shadow-drop), 0 0 16px rgba(0,0,0,0.4);
+  gap: 5px;
+  min-width: 130px;
+}
+#bulkToolbar.show { display: flex; }
+.bulk-btn {
+  border: none; font-family: var(--font-mono); font-weight: 600; font-size: 11px;
+  padding: 8px 14px; border-radius: 6px; cursor: pointer; transition: all 0.12s;
+  white-space: nowrap; text-align: center; width: 100%;
+}
+.bulk-btn.paste { background: var(--bg-card); color: var(--accent); border: 1px solid var(--accent-dim); }
+.bulk-btn.paste:hover { background: var(--accent-glow); }
+.bulk-btn.paste:disabled { opacity: 0.3; cursor: not-allowed; }
+.bulk-btn.delete { background: var(--bg-card); color: var(--danger); border: 1px solid var(--danger-dim); }
+.bulk-btn.delete:hover { background: rgba(255,23,68,0.1); }
+.bulk-btn.cancel-bulk { background: var(--bg-card); color: var(--text-2); border: 1px solid var(--border); }
+.bulk-btn.cancel-bulk:hover { background: var(--bg-hover); color: var(--text-1); }
+.bulk-btn.loop-start { background: var(--bg-card); color: var(--accent); border: 1px solid var(--accent-dim); }
+.bulk-btn.loop-start:hover { background: var(--accent-glow); }
+.bulk-btn.loop-start:disabled { opacity: 0.3; cursor: not-allowed; }
+.bulk-btn.loop-stop { background: var(--bg-card); color: #ff9800; border: 1px solid #e65100; }
+.bulk-btn.loop-stop:hover { background: rgba(255,152,0,0.1); }
+.bulk-btn.loop-stop:disabled { opacity: 0.3; cursor: not-allowed; }
+
 /* noise */
 #app::after {
   content: ''; position: fixed; inset: 0; pointer-events: none; opacity: 0.025;
@@ -491,8 +558,11 @@ html, body {
       <select class="device-select" id="outputSelect"><option value="">None</option></select>
     </div>
     <div class="device-group">
-      <label>Mic Route</label>
-      <select class="device-select" id="inputSelect" title="Pick the virtual cable input (e.g. VoiceMeeter In, CABLE Input) to route sounds to your mic"><option value="">None</option></select>
+      <label>Input</label>
+      <select class="device-select" id="inputSelect" title="Select your microphone — Voicemeeter Strip 1 will be set to this device"><option value="">None</option></select>
+    </div>
+    <div class="toggle-group" style="display:flex;align-items:center;gap:6px;margin:0 4px;">
+      <button class="rec-toggle" id="recToggle" title="Route sounds to Voicemeeter Input (virtual cable)">🔇 Rec</button>
     </div>
     <div class="vol-group">
       <label>Vol</label>
@@ -523,6 +593,13 @@ html, body {
 </div>
 
 <div class="ctx-menu" id="ctxMenu"></div>
+<div id="bulkToolbar">
+  <button class="bulk-btn paste" id="bulkPaste" title="Paste copied loop settings to selected buttons">Paste Loop</button>
+  <button class="bulk-btn loop-start" id="bulkStartLoop" title="Start looping all selected buttons">Start Loop</button>
+  <button class="bulk-btn loop-stop" id="bulkStopLoop" title="Stop looping all selected buttons">Stop Loop</button>
+  <button class="bulk-btn delete" id="bulkDelete">Delete</button>
+  <button class="bulk-btn cancel-bulk" id="bulkCancel">Cancel</button>
+</div>
 <div id="modalRoot"></div>
 
 <script>
@@ -575,6 +652,21 @@ function dbToLinear(db) { return Math.pow(10, db / 20); }
 let activeSounds = [];
 // Track active loops: btnId → { timerId, active }
 let activeLoops = {};
+
+// Copied loop settings for paste
+let copiedLoopSettings = null;
+
+// Bulk selection mode
+let bulkSelectMode = false;
+let bulkSelectedIds = new Set();
+let lastSelectedId = null;
+let longPressTimer = null;
+
+// Drag-to-select state
+let bulkDragging = false;
+let bulkDragAnchorId = null;
+let bulkDragPrevRange = new Set(); // ids added by the current drag, so we can undo on backtrack
+let bulkSuppressClick = false; // suppress click after drag or long-press entry
 
 // We need separate AudioContexts per output device since setSinkId is per-context
 const audioContextCache = {}; // deviceId → AudioContext
@@ -641,6 +733,13 @@ function startLoop(btn, puckEl) {
     // Repeat on end: play once, then replay when it finishes
     activeLoops[btn.id] = { timerId: null, active: true };
     playSoundWithLoopOnEnd(btn, puckEl);
+  } else if (interval === -2) {
+    // Random interval: play every random(min, max) seconds
+    const min = btn.loopRandomMin || 1;
+    const max = btn.loopRandomMax || 5;
+    activeLoops[btn.id] = { timerId: null, active: true };
+    playSound(btn, puckEl);
+    scheduleRandomLoop(btn, puckEl, min, max);
   } else if (interval > 0) {
     // Play every N seconds
     playSound(btn, puckEl);
@@ -650,6 +749,17 @@ function startLoop(btn, puckEl) {
     }, interval * 1000);
     activeLoops[btn.id] = { timerId: tid, active: true };
   }
+}
+
+function scheduleRandomLoop(btn, puckEl, min, max) {
+  if (!activeLoops[btn.id]) return;
+  const delay = (Math.random() * (max - min) + min) * 1000;
+  const tid = setTimeout(() => {
+    if (!activeLoops[btn.id]) return;
+    playSound(btn, puckEl);
+    scheduleRandomLoop(btn, puckEl, min, max);
+  }, delay);
+  activeLoops[btn.id].timerId = tid;
 }
 
 async function playSoundWithLoopOnEnd(btn, puckEl) {
@@ -667,7 +777,7 @@ async function playSoundWithLoopOnEnd(btn, puckEl) {
   const gainMult = dbToLinear(btn.gainDb || 0);
   const finalVol = Math.max(master * btnVol * gainMult, 0);
   const hasOutput = !!outputDeviceId;
-  const hasInput = !!inputDeviceId;
+  const hasInput = recToInput && !!virtualCableDeviceId;
   if (!hasOutput && !hasInput) return;
 
   const entry = { btnId: btn.id, outputAudio: null, inputAudio: null, puckEl: puckEl || null };
@@ -690,7 +800,7 @@ async function playSoundWithLoopOnEnd(btn, puckEl) {
       audio.addEventListener('error', () => { entry.outputAudio = null; if (!entry.inputAudio) onEnded(); });
     }
     if (hasInput) {
-      const { audio: audio2, gainNode: gainNode2 } = createAmplifiedAudio(url, inputDeviceId, finalVol);
+      const { audio: audio2, gainNode: gainNode2 } = createAmplifiedAudio(url, virtualCableDeviceId, finalVol);
       entry.inputAudio = audio2;
       entry.inputGain = gainNode2;
       audio2.play();
@@ -757,7 +867,8 @@ async function playSound(btn, puckEl) {
   const finalVol = Math.max(master * btnVol * gainMult, 0);
 
   const hasOutput = !!outputDeviceId;
-  const hasInput = !!inputDeviceId;
+  const hasInput = recToInput && !!virtualCableDeviceId;
+  console.log('[playSound]', { hasOutput, hasInput, recToInput, virtualCable: virtualCableDeviceId ? 'detected' : 'NONE', outputDeviceId: outputDeviceId || 'NONE' });
 
   if (!hasOutput && !hasInput) return;
 
@@ -775,7 +886,7 @@ async function playSound(btn, puckEl) {
     }
 
     if (hasInput) {
-      const { audio: audio2, gainNode: gainNode2 } = createAmplifiedAudio(url, inputDeviceId, finalVol);
+      const { audio: audio2, gainNode: gainNode2 } = createAmplifiedAudio(url, virtualCableDeviceId, finalVol);
       entry.inputAudio = audio2;
       entry.inputGain = gainNode2;
       audio2.play();
@@ -790,12 +901,16 @@ async function playSound(btn, puckEl) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════
-// DEVICES — live refresh, output only
+// DEVICES — live refresh
 // ═══════════════════════════════════════════════════════════════════════
+let virtualCableDeviceId = null; // auto-detected VoiceMeeter/CABLE output device for routing sounds
+let recToInput = false; // whether sounds should route to the virtual cable
+
 async function refreshDevices() {
   try { await navigator.mediaDevices.getUserMedia({ audio: true }); } catch(e){}
   const devices = await navigator.mediaDevices.enumerateDevices();
   const outputs = devices.filter(d => d.kind === 'audiooutput');
+  const inputs = devices.filter(d => d.kind === 'audioinput');
 
   // Output selector
   const outSel = document.getElementById('outputSelect');
@@ -814,15 +929,15 @@ async function refreshDevices() {
   }
   outputDeviceId = outSel.value || null;
 
-  // Input selector — also uses audiooutput devices because we route via setSinkId
-  // The user picks the virtual cable INPUT (which appears as an output device)
+  // Input selector — shows real audio input (microphone) devices
   const inSel = document.getElementById('inputSelect');
   const curInVal = inSel.value;
   inSel.innerHTML = '<option value="">None</option>';
-  outputs.forEach(d => {
+  inputs.forEach(d => {
+    if (d.deviceId === 'default' || d.deviceId === 'communications') return; // skip aliases
     const opt = document.createElement('option');
     opt.value = d.deviceId;
-    opt.textContent = d.label || `Speaker ${d.deviceId.substring(0,8)}`;
+    opt.textContent = d.label || `Mic ${d.deviceId.substring(0,8)}`;
     inSel.appendChild(opt);
   });
   if (config.inputDeviceId && [...inSel.options].some(o => o.value === config.inputDeviceId)) {
@@ -831,6 +946,34 @@ async function refreshDevices() {
     inSel.value = curInVal || '';
   }
   inputDeviceId = inSel.value || null;
+
+  // Auto-detect VoiceMeeter/CABLE virtual cable output for sound routing
+  const vmCable = outputs.find(d => {
+    const l = (d.label || '').toLowerCase();
+    return l.includes('voicemeeter') || l.includes('vb-audio') || l.includes('cable input');
+  });
+  virtualCableDeviceId = vmCable ? vmCable.deviceId : null;
+  console.log('Audio outputs:', outputs.map(d => d.label));
+  console.log('Virtual cable detected:', vmCable ? vmCable.label : 'NONE');
+
+  // Update rec toggle state
+  updateRecToggle();
+}
+
+function updateRecToggle() {
+  const btn = document.getElementById('recToggle');
+  if (recToInput && virtualCableDeviceId) {
+    btn.classList.add('active');
+    btn.textContent = '🔊 Rec';
+  } else {
+    btn.classList.remove('active');
+    btn.textContent = '🔇 Rec';
+  }
+  if (!virtualCableDeviceId) {
+    btn.title = 'No VoiceMeeter/CABLE virtual device detected';
+  } else {
+    btn.title = recToInput ? 'Sounds are being routed to VoiceMeeter Input' : 'Click to route sounds to VoiceMeeter Input';
+  }
 }
 
 navigator.mediaDevices?.addEventListener('devicechange', () => refreshDevices());
@@ -854,7 +997,9 @@ async function loadConfigFromDisk() {
   config.buttons.forEach(b => {
     if (b.volume === undefined) b.volume = 100;
     if (b.gainDb === undefined) b.gainDb = 0;
-    if (b.loopInterval === undefined) b.loopInterval = null; // null = no loop, -1 = repeat on end, >0 = seconds
+    if (b.loopInterval === undefined) b.loopInterval = null; // null = no loop, -1 = repeat on end, -2 = random interval, >0 = seconds
+    if (b.loopRandomMin === undefined) b.loopRandomMin = 1;
+    if (b.loopRandomMax === undefined) b.loopRandomMax = 5;
   });
 }
 
@@ -943,6 +1088,8 @@ function renderPuck(btn, container, isDragEnabled = true) {
   el.className = 'sound-puck';
   el.dataset.btnId = btn.id;
   el.style.setProperty('--cat-color', catColor);
+  // Random shake delay so they don't all shake in unison
+  el.style.setProperty('--shake-delay', Math.floor(Math.random() * 250));
   // Subtle category tint on puck background (main area only)
   if (isDragEnabled) {
     const rgb = hexToRgb(catColor);
@@ -952,8 +1099,9 @@ function renderPuck(btn, container, isDragEnabled = true) {
   if (downloadingSet.has(btn.id)) el.classList.add('downloading');
   if (isButtonPlaying(btn.id)) el.classList.add('playing');
   if (activeLoops[btn.id]) el.classList.add('looping');
+  if (bulkSelectMode && bulkSelectedIds.has(btn.id)) el.classList.add('bulk-selected');
 
-  if (isDragEnabled) el.draggable = true;
+  if (isDragEnabled && !bulkSelectMode) el.draggable = true;
 
   el.innerHTML = `
     <span class="loop-icon">\u21BB</span>
@@ -964,8 +1112,8 @@ function renderPuck(btn, container, isDragEnabled = true) {
 
   activeSounds.forEach(s => { if (s.btnId === btn.id) s.puckEl = el; });
 
-  // Drag & drop
-  if (isDragEnabled) {
+  // Drag & drop (disabled in bulk select mode)
+  if (isDragEnabled && !bulkSelectMode) {
     el.addEventListener('dragstart', (e) => {
       e.dataTransfer.setData('text/plain', btn.id);
       e.dataTransfer.effectAllowed = 'move';
@@ -991,7 +1139,96 @@ function renderPuck(btn, container, isDragEnabled = true) {
     });
   }
 
-  el.addEventListener('click', async () => {
+  // Long press to enter bulk mode + drag-to-select (only on main grid pucks)
+  if (isDragEnabled) {
+    let lpTimer = null;
+    el.addEventListener('pointerdown', (e) => {
+      if (bulkSelectMode) {
+        // Already in bulk mode — prepare for potential drag but don't select yet
+        e.preventDefault();
+        bulkDragging = false;
+        bulkSuppressClick = false;
+        bulkDragAnchorId = btn.id;
+        bulkDragPrevRange = new Set();
+        el.setPointerCapture(e.pointerId);
+        return;
+      }
+      lpTimer = setTimeout(() => {
+        lpTimer = null;
+        enterBulkSelectMode();
+        bulkSuppressClick = true;
+        bulkDragAnchorId = btn.id;
+        bulkDragPrevRange = new Set();
+        bulkSelectedIds.add(btn.id);
+        bulkDragPrevRange.add(btn.id);
+        lastSelectedId = btn.id;
+        updateBulkVisuals();
+        updateBulkToolbar();
+        el.setPointerCapture(e.pointerId);
+      }, 500);
+    });
+    el.addEventListener('pointermove', (e) => {
+      if (lpTimer) { clearTimeout(lpTimer); lpTimer = null; }
+      if (!bulkDragAnchorId) return;
+      const elemUnder = document.elementFromPoint(e.clientX, e.clientY);
+      if (!elemUnder) return;
+      const puck = elemUnder.closest('.sound-puck[data-btn-id]');
+      if (!puck) return;
+      const hoveredId = puck.dataset.btnId;
+      if (!hoveredId || !bulkDragAnchorId) return;
+      // Only start actual drag when pointer moves to a different puck
+      if (!bulkDragging && hoveredId !== bulkDragAnchorId) {
+        bulkDragging = true;
+        bulkSuppressClick = true;
+        bulkSelectedIds.add(bulkDragAnchorId);
+        bulkDragPrevRange.add(bulkDragAnchorId);
+      }
+      if (!bulkDragging) return;
+      // Compute range from anchor to hovered in DOM order
+      const allPucks = Array.from(document.querySelectorAll('#main .sound-puck[data-btn-id]'));
+      const allIds = allPucks.map(p => p.dataset.btnId);
+      const anchorIdx = allIds.indexOf(bulkDragAnchorId);
+      const hoverIdx = allIds.indexOf(hoveredId);
+      if (anchorIdx === -1 || hoverIdx === -1) return;
+      const start = Math.min(anchorIdx, hoverIdx);
+      const end = Math.max(anchorIdx, hoverIdx);
+      const newRange = new Set();
+      for (let i = start; i <= end; i++) newRange.add(allIds[i]);
+      bulkDragPrevRange.forEach(id => {
+        if (!newRange.has(id)) bulkSelectedIds.delete(id);
+      });
+      newRange.forEach(id => bulkSelectedIds.add(id));
+      bulkDragPrevRange = newRange;
+      lastSelectedId = hoveredId;
+      updateBulkVisuals();
+      updateBulkToolbar();
+    });
+    el.addEventListener('pointerup', (e) => {
+      if (lpTimer) { clearTimeout(lpTimer); lpTimer = null; }
+      bulkDragging = false;
+      bulkDragAnchorId = null;
+      bulkDragPrevRange = new Set();
+      try { el.releasePointerCapture(e.pointerId); } catch(_) {}
+    });
+    el.addEventListener('pointercancel', (e) => {
+      if (lpTimer) { clearTimeout(lpTimer); lpTimer = null; }
+      bulkDragging = false;
+      bulkDragAnchorId = null;
+      bulkDragPrevRange = new Set();
+      try { el.releasePointerCapture(e.pointerId); } catch(_) {}
+    });
+  }
+
+  el.addEventListener('click', async (e) => {
+    if (bulkSelectMode) {
+      e.stopPropagation();
+      if (bulkSuppressClick) {
+        bulkSuppressClick = false;
+        return;
+      }
+      bulkToggleSelect(btn.id, e.shiftKey);
+      return;
+    }
     if (downloadingSet.has(btn.id)) return;
     if (isUrl(btn.source) && !btn.resolvedPath) {
       const resolved = await downloadAndResolve(btn);
@@ -1002,6 +1239,7 @@ function renderPuck(btn, container, isDragEnabled = true) {
 
   el.addEventListener('contextmenu', (e) => {
     e.preventDefault(); e.stopPropagation();
+    if (bulkSelectMode) return; // No context menu in bulk mode
     const items = [];
     items.push({ label: '\u270F Edit', action: () => openEditButtonModal(btn) });
     items.push({ label: btn.favorite ? '\u2606 Unfavorite' : '\u2605 Favorite', cls: 'favorite', action: () => { btn.favorite = !btn.favorite; saveConfig(); renderAll(); } });
@@ -1092,29 +1330,46 @@ function openLoopModal(btn) {
   const root = document.getElementById('modalRoot');
   const current = btn.loopInterval;
   const isRepeat = current === -1;
+  const isRandom = current === -2;
   const isInterval = current !== null && current > 0;
   const intervalVal = isInterval ? current : 5;
+  const randomMinVal = btn.loopRandomMin || 1;
+  const randomMaxVal = btn.loopRandomMax || 5;
 
   root.innerHTML = `
     <div class="modal-overlay" id="modalOverlay">
-      <div class="modal" style="width:360px;">
+      <div class="modal" style="width:320px;">
         <h2>Loop Settings</h2>
         <div class="modal-field">
           <label>Mode</label>
           <select id="loopMode" style="width:100%;background:var(--bg-card);border:1px solid var(--border);border-radius:6px;color:var(--text-1);font-family:var(--font-mono);font-size:12px;padding:7px 10px;outline:none;">
-            <option value="none" ${current === null ? 'selected' : ''}>No Loop</option>
+            <option value="none" ${current === null ? 'selected' : ''}>Off</option>
             <option value="repeat" ${isRepeat ? 'selected' : ''}>Repeat on End</option>
-            <option value="interval" ${isInterval ? 'selected' : ''}>Every X Seconds</option>
+            <option value="interval" ${isInterval ? 'selected' : ''}>Every X Sec</option>
+            <option value="random" ${isRandom ? 'selected' : ''}>Random Interval</option>
           </select>
         </div>
         <div class="modal-field" id="intervalField" style="display:${isInterval ? 'block' : 'none'};">
-          <label>Interval (seconds)</label>
+          <label>Sec</label>
           <input type="number" id="loopSeconds" value="${intervalVal}" min="0.1" step="0.1"
             style="width:100%;background:var(--bg-card);border:1px solid var(--border);border-radius:6px;color:var(--text-1);font-family:var(--font-mono);font-size:12px;padding:7px 10px;outline:none;">
         </div>
-        <div class="modal-actions">
-          <button class="cancel-btn" id="loopCancel">Cancel</button>
-          <button class="save-btn" id="loopSave">Save</button>
+        <div class="modal-field" id="randomField" style="display:${isRandom ? 'block' : 'none'};">
+          <label>Range (sec)</label>
+          <div style="display:flex;gap:8px;align-items:center;">
+            <input type="number" id="loopRandomMin" value="${randomMinVal}" min="0.1" step="0.1"
+              style="flex:1;min-width:0;background:var(--bg-card);border:1px solid var(--border);border-radius:6px;color:var(--text-1);font-family:var(--font-mono);font-size:12px;padding:7px 10px;outline:none;">
+            <span style="color:var(--text-3);font-family:var(--font-mono);font-size:13px;flex-shrink:0;">–</span>
+            <input type="number" id="loopRandomMax" value="${randomMaxVal}" min="0.1" step="0.1"
+              style="flex:1;min-width:0;background:var(--bg-card);border:1px solid var(--border);border-radius:6px;color:var(--text-1);font-family:var(--font-mono);font-size:12px;padding:7px 10px;outline:none;">
+          </div>
+        </div>
+        <div class="modal-actions" style="justify-content:space-between;">
+          <button class="cancel-btn" id="loopCopy" style="font-size:10px;padding:5px 10px;" title="Copy these loop settings to paste onto other buttons">📋 Copy</button>
+          <div style="display:flex;gap:8px;">
+            <button class="cancel-btn" id="loopCancel">Cancel</button>
+            <button class="save-btn" id="loopSave">Save</button>
+          </div>
         </div>
       </div>
     </div>
@@ -1122,13 +1377,48 @@ function openLoopModal(btn) {
 
   document.getElementById('loopMode').addEventListener('change', (e) => {
     document.getElementById('intervalField').style.display = e.target.value === 'interval' ? 'block' : 'none';
+    document.getElementById('randomField').style.display = e.target.value === 'random' ? 'block' : 'none';
+  });
+
+  document.getElementById('loopCopy').addEventListener('click', () => {
+    // Read current modal state to copy
+    const mode = document.getElementById('loopMode').value;
+    const copied = { loopInterval: null, loopRandomMin: 1, loopRandomMax: 5 };
+    if (mode === 'none') copied.loopInterval = null;
+    else if (mode === 'repeat') copied.loopInterval = -1;
+    else if (mode === 'random') {
+      copied.loopInterval = -2;
+      let min = parseFloat(document.getElementById('loopRandomMin').value);
+      let max = parseFloat(document.getElementById('loopRandomMax').value);
+      if (isNaN(min) || min <= 0) min = 1;
+      if (isNaN(max) || max <= 0) max = 5;
+      if (min > max) { const tmp = min; min = max; max = tmp; }
+      copied.loopRandomMin = min;
+      copied.loopRandomMax = max;
+    } else {
+      const secs = parseFloat(document.getElementById('loopSeconds').value);
+      copied.loopInterval = (isNaN(secs) || secs <= 0) ? 5 : secs;
+    }
+    copiedLoopSettings = copied;
+    const copyBtn = document.getElementById('loopCopy');
+    copyBtn.textContent = '✓ Copied';
+    setTimeout(() => { copyBtn.textContent = '📋 Copy'; }, 1200);
   });
 
   document.getElementById('loopSave').addEventListener('click', () => {
     const mode = document.getElementById('loopMode').value;
     if (mode === 'none') btn.loopInterval = null;
     else if (mode === 'repeat') btn.loopInterval = -1;
-    else {
+    else if (mode === 'random') {
+      btn.loopInterval = -2;
+      let min = parseFloat(document.getElementById('loopRandomMin').value);
+      let max = parseFloat(document.getElementById('loopRandomMax').value);
+      if (isNaN(min) || min <= 0) min = 1;
+      if (isNaN(max) || max <= 0) max = 5;
+      if (min > max) { const tmp = min; min = max; max = tmp; }
+      btn.loopRandomMin = min;
+      btn.loopRandomMax = max;
+    } else {
       const secs = parseFloat(document.getElementById('loopSeconds').value);
       btn.loopInterval = (isNaN(secs) || secs <= 0) ? 5 : secs;
     }
@@ -1273,6 +1563,140 @@ function showCategoryMenu(e, cat) {
       saveConfig(); renderAll();
     }},
   ]);
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// BULK SELECT MODE
+// ═══════════════════════════════════════════════════════════════════════
+function enterBulkSelectMode() {
+  if (bulkSelectMode) return;
+  bulkSelectMode = true;
+  bulkSelectedIds.clear();
+  lastSelectedId = null;
+  document.getElementById('main').classList.add('shake-mode');
+  document.getElementById('bulkToolbar').classList.add('show');
+  // Disable draggable on existing pucks without re-rendering (preserves pointer capture)
+  document.querySelectorAll('#main .sound-puck[data-btn-id]').forEach(el => {
+    el.draggable = false;
+    el.style.setProperty('--shake-delay', Math.floor(Math.random() * 250));
+  });
+  updateBulkToolbar();
+}
+
+function exitBulkSelectMode() {
+  bulkSelectMode = false;
+  bulkSelectedIds.clear();
+  lastSelectedId = null;
+  document.getElementById('main').classList.remove('shake-mode');
+  document.getElementById('bulkToolbar').classList.remove('show');
+  renderAll();
+}
+
+function bulkToggleSelect(btnId, shiftKey) {
+  if (shiftKey && lastSelectedId) {
+    // Range select: use DOM order (visual order) instead of config.buttons order
+    const allPucks = Array.from(document.querySelectorAll('#main .sound-puck[data-btn-id]'));
+    const allIds = allPucks.map(el => el.dataset.btnId);
+    const fromIdx = allIds.indexOf(lastSelectedId);
+    const toIdx = allIds.indexOf(btnId);
+    if (fromIdx !== -1 && toIdx !== -1) {
+      const start = Math.min(fromIdx, toIdx);
+      const end = Math.max(fromIdx, toIdx);
+      for (let i = start; i <= end; i++) {
+        bulkSelectedIds.add(allIds[i]);
+      }
+    }
+  } else {
+    if (bulkSelectedIds.has(btnId)) {
+      bulkSelectedIds.delete(btnId);
+    } else {
+      bulkSelectedIds.add(btnId);
+    }
+    lastSelectedId = btnId;
+  }
+  // Update visuals without full re-render
+  document.querySelectorAll('.sound-puck[data-btn-id]').forEach(el => {
+    if (bulkSelectedIds.has(el.dataset.btnId)) {
+      el.classList.add('bulk-selected');
+    } else {
+      el.classList.remove('bulk-selected');
+    }
+  });
+  updateBulkToolbar();
+}
+
+function updateBulkVisuals() {
+  document.querySelectorAll('.sound-puck[data-btn-id]').forEach(el => {
+    if (bulkSelectedIds.has(el.dataset.btnId)) {
+      el.classList.add('bulk-selected');
+    } else {
+      el.classList.remove('bulk-selected');
+    }
+  });
+}
+
+function updateBulkToolbar() {
+  const pasteBtn = document.getElementById('bulkPaste');
+  pasteBtn.disabled = !copiedLoopSettings || bulkSelectedIds.size === 0;
+  const count = bulkSelectedIds.size;
+  document.getElementById('bulkDelete').textContent = count > 0 ? `Delete (${count})` : 'Delete';
+
+  // Start Loop: enabled if any selected button has a loop configured but isn't looping
+  const startBtn = document.getElementById('bulkStartLoop');
+  const hasStartable = [...bulkSelectedIds].some(id => {
+    const btn = config.buttons.find(b => b.id === id);
+    return btn && btn.loopInterval !== null && !activeLoops[id];
+  });
+  startBtn.disabled = !hasStartable;
+
+  // Stop Loop: enabled if any selected button is currently looping
+  const stopBtn = document.getElementById('bulkStopLoop');
+  const hasStoppable = [...bulkSelectedIds].some(id => !!activeLoops[id]);
+  stopBtn.disabled = !hasStoppable;
+}
+
+function bulkPasteLoop() {
+  if (!copiedLoopSettings || bulkSelectedIds.size === 0) return;
+  config.buttons.forEach(btn => {
+    if (bulkSelectedIds.has(btn.id)) {
+      btn.loopInterval = copiedLoopSettings.loopInterval;
+      btn.loopRandomMin = copiedLoopSettings.loopRandomMin;
+      btn.loopRandomMax = copiedLoopSettings.loopRandomMax;
+    }
+  });
+  saveConfig();
+  exitBulkSelectMode();
+}
+
+function bulkDeleteSelected() {
+  if (bulkSelectedIds.size === 0) return;
+  // Stop any playing/looping sounds for these buttons
+  bulkSelectedIds.forEach(id => stopButton(id));
+  config.buttons = config.buttons.filter(b => !bulkSelectedIds.has(b.id));
+  saveConfig();
+  exitBulkSelectMode();
+}
+
+function bulkStartLoop() {
+  if (bulkSelectedIds.size === 0) return;
+  bulkSelectedIds.forEach(id => {
+    const btn = config.buttons.find(b => b.id === id);
+    if (!btn || btn.loopInterval === null) return; // skip buttons with no loop configured
+    if (activeLoops[id]) return; // already looping
+    const puckEl = document.querySelector(`.sound-puck[data-btn-id="${id}"]`);
+    startLoop(btn, puckEl);
+  });
+  exitBulkSelectMode();
+}
+
+function bulkStopLoop() {
+  if (bulkSelectedIds.size === 0) return;
+  bulkSelectedIds.forEach(id => {
+    if (activeLoops[id]) {
+      stopButton(id);
+    }
+  });
+  exitBulkSelectMode();
 }
 
 function renderAll() {
@@ -2199,7 +2623,7 @@ function openGuideModal() {
           <h3>3. Configure Nob's Soundboard</h3>
           <div class="step">
             <div class="step-num">3</div>
-            <div class="step-text">In this app's top bar, set <strong>Mic Route</strong> to <strong>VoiceMeeter Input</strong> (or "CABLE Input").</div>
+            <div class="step-text">In this app's top bar, set <strong>Input</strong> to your microphone, then click the <strong>Rec</strong> button to enable routing sounds through VoiceMeeter. The app auto-detects VoiceMeeter Input.</div>
           </div>
           <div class="step">
             <div class="step-num">4</div>
@@ -2280,6 +2704,34 @@ async function init() {
   if (config.inputDeviceId) inSel.value = config.inputDeviceId;
   inputDeviceId = inSel.value || null;
 
+  // Restore recToInput state (default ON for first startup)
+  recToInput = config.recToInput ?? true;
+  updateRecToggle();
+
+  // Try to connect to Voicemeeter Remote API on startup and set strip device
+  if (hasElectron) {
+    try {
+      const vmResult = await window.api.vmConnect();
+      if (vmResult.success && inSel.value) {
+        const selectedOption = inSel.options[inSel.selectedIndex];
+        if (selectedOption && selectedOption.textContent) {
+          await window.api.vmSetStripDevice({ stripIndex: 0, deviceName: selectedOption.textContent });
+        }
+      }
+    } catch(e) { /* VM not available, that's fine */ }
+  }
+
+  document.getElementById('recToggle').addEventListener('click', () => {
+    if (!virtualCableDeviceId) {
+      alert('No VoiceMeeter or CABLE virtual device detected. Make sure VoiceMeeter is running.');
+      return;
+    }
+    recToInput = !recToInput;
+    config.recToInput = recToInput;
+    saveConfig();
+    updateRecToggle();
+  });
+
   document.getElementById('volumeSlider').addEventListener('input', (e) => {
     config.volume = parseInt(e.target.value);
     // Update gain on all active sounds — recalculate isn't practical per-button here,
@@ -2301,10 +2753,21 @@ async function init() {
     saveConfig();
   });
 
-  inSel.addEventListener('change', () => {
+  inSel.addEventListener('change', async () => {
     config.inputDeviceId = inSel.value || null;
     inputDeviceId = inSel.value || null;
     saveConfig();
+    // Set Voicemeeter Strip[0] hardware input to the selected mic
+    if (hasElectron && inSel.value) {
+      const selectedOption = inSel.options[inSel.selectedIndex];
+      const deviceLabel = selectedOption ? selectedOption.textContent : '';
+      if (deviceLabel) {
+        try {
+          await window.api.vmConnect();
+          await window.api.vmSetStripDevice({ stripIndex: 0, deviceName: deviceLabel });
+        } catch(e) { console.log('VM strip set skipped:', e.message); }
+      }
+    }
   });
 
   document.getElementById('addSoundBtn').addEventListener('click', () => openEditButtonModal());
@@ -2355,6 +2818,20 @@ async function init() {
   }
 
   setupSidebarResize();
+
+  // Bulk select toolbar
+  document.getElementById('bulkPaste').addEventListener('click', bulkPasteLoop);
+  document.getElementById('bulkStartLoop').addEventListener('click', bulkStartLoop);
+  document.getElementById('bulkStopLoop').addEventListener('click', bulkStopLoop);
+  document.getElementById('bulkDelete').addEventListener('click', bulkDeleteSelected);
+  document.getElementById('bulkCancel').addEventListener('click', exitBulkSelectMode);
+
+  // Escape to exit bulk mode
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && bulkSelectMode) {
+      exitBulkSelectMode();
+    }
+  });
 
   // Setup guide button
   const guideBtn = document.getElementById('guideBtn');

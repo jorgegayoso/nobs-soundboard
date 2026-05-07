@@ -67,6 +67,11 @@ function createWindow() {
   });
   mainWindow.loadFile('renderer/index.html');
 
+  // Auto-setup VoiceMeeter once the renderer is ready
+  mainWindow.webContents.on('did-finish-load', () => {
+    autoSetupVoicemeeter();
+  });
+
   // Hide to tray instead of closing
   mainWindow.on('close', (e) => {
     if (!isQuitting) {
@@ -422,6 +427,337 @@ ipcMain.handle('download-url', async (_, { url, categoryName, fileName }) => {
 ipcMain.handle('get-sounds-dir', () => SOUNDS_DIR);
 
 // ── IPC: VoiceMeeter ───────────────────────────────────────────────────
+
+// ── Voicemeeter Remote API ──────────────────────────────────────────────
+// Uses koffi to load VoicemeeterRemote DLL. No native compilation needed.
+// Falls back gracefully if the DLL or koffi is not available.
+let vmLib = null;   // koffi loaded library
+let vmFns = null;   // bound function references
+let vmConnected = false;
+
+function findVoicemeeterDll() {
+  const programFiles = process.env['ProgramFiles'] || 'C:\\Program Files';
+  const programFilesX86 = process.env['ProgramFiles(x86)'] || 'C:\\Program Files (x86)';
+  const candidates = [
+    path.join(programFiles, 'VB', 'Voicemeeter', 'VoicemeeterRemote64.dll'),
+    path.join(programFilesX86, 'VB', 'Voicemeeter', 'VoicemeeterRemote64.dll'),
+    path.join(programFiles, 'VB', 'Voicemeeter', 'VoicemeeterRemote.dll'),
+    path.join(programFilesX86, 'VB', 'Voicemeeter', 'VoicemeeterRemote.dll'),
+  ];
+  for (const p of candidates) {
+    if (fs.existsSync(p)) return p;
+  }
+  return null;
+}
+
+function findVoicemeeterExe() {
+  // Try to find VoiceMeeter executable automatically
+  const programFiles = process.env['ProgramFiles'] || 'C:\\Program Files';
+  const programFilesX86 = process.env['ProgramFiles(x86)'] || 'C:\\Program Files (x86)';
+  const candidates = [
+    path.join(programFiles, 'VB', 'Voicemeeter', 'voicemeeter.exe'),
+    path.join(programFilesX86, 'VB', 'Voicemeeter', 'voicemeeter.exe'),
+    path.join(programFiles, 'VB', 'Voicemeeter', 'voicemeeterpro.exe'),
+    path.join(programFilesX86, 'VB', 'Voicemeeter', 'voicemeeterpro.exe'),
+    path.join(programFiles, 'VB', 'Voicemeeter', 'voicemeeter8x64.exe'),
+    path.join(programFilesX86, 'VB', 'Voicemeeter', 'voicemeeter8x64.exe'),
+  ];
+  for (const p of candidates) {
+    if (fs.existsSync(p)) return p;
+  }
+  return null;
+}
+
+function isVoicemeeterRunning() {
+  try {
+    const { execSync } = require('child_process');
+    const result = execSync(
+      'tasklist /FI "IMAGENAME eq voicemeeter.exe" /FI "IMAGENAME eq voicemeeterpro.exe" /FI "IMAGENAME eq voicemeeter8x64.exe" /NH',
+      { timeout: 3000, windowsHide: true, encoding: 'utf-8' }
+    );
+    return result.toLowerCase().includes('voicemeeter');
+  } catch(e) { return false; }
+}
+
+function loadVmLibrary() {
+  if (vmLib) return true;
+  try {
+    const koffi = require('koffi');
+    const dllPath = findVoicemeeterDll();
+    if (!dllPath) {
+      console.log('[VM] DLL not found');
+      return false;
+    }
+    vmLib = koffi.load(dllPath);
+    vmFns = {
+      Login:               vmLib.func('long __stdcall VBVMR_Login()'),
+      Logout:              vmLib.func('long __stdcall VBVMR_Logout()'),
+      RunVoicemeeter:      vmLib.func('long __stdcall VBVMR_RunVoicemeeter(long)'),
+      SetParameterStringA: vmLib.func('long __stdcall VBVMR_SetParameterStringA(str, str)'),
+      SetParameterFloat:   vmLib.func('long __stdcall VBVMR_SetParameterFloat(str, float)'),
+      GetParameterFloat:   vmLib.func('long __stdcall VBVMR_GetParameterFloat(str, _Out_ float *)'),
+      IsParametersDirty:   vmLib.func('long __stdcall VBVMR_IsParametersDirty()'),
+      GetVoicemeeterType:  vmLib.func('long __stdcall VBVMR_GetVoicemeeterType(_Out_ long *)'),
+    };
+    console.log('[VM] Library loaded from:', dllPath);
+    return true;
+  } catch(e) {
+    console.log('[VM] Failed to load library:', e.message);
+    return false;
+  }
+}
+
+function connectVoicemeeterRemote() {
+  if (vmConnected) return true;
+  if (!loadVmLibrary()) return false;
+
+  try {
+    const loginResult = vmFns.Login();
+    console.log('[VM] Login result:', loginResult);
+    // 0 = OK (VM running), 1 = OK (VM not running, will launch), -1 = error, -2 = already logged in
+    if (loginResult === -2) {
+      // Already logged in from a previous attempt
+      vmConnected = true;
+      // Drain dirty flag
+      try { vmFns.IsParametersDirty(); } catch(e) {}
+      return true;
+    }
+    if (loginResult !== 0 && loginResult !== 1) {
+      console.log('[VM] Login failed with code:', loginResult);
+      return false;
+    }
+
+    vmConnected = true;
+
+    // CRITICAL: Must call IsParametersDirty() after login to acknowledge initial state.
+    // The API won't apply parameter changes until the dirty flag has been read at least once.
+    // Give VM a moment to initialize its internal state, then drain.
+    try { vmFns.IsParametersDirty(); } catch(e) {}
+
+    console.log('[VM] Connected successfully');
+    return true;
+  } catch (e) {
+    console.log('[VM] Connection error:', e.message);
+    return false;
+  }
+}
+
+function disconnectVoicemeeterRemote() {
+  if (vmConnected && vmFns) {
+    try { vmFns.Logout(); } catch(e) {}
+    vmConnected = false;
+  }
+}
+
+// Wait for VoiceMeeter to be fully ready (parameters readable)
+function waitForVmReady(timeoutMs = 10000) {
+  return new Promise((resolve) => {
+    const start = Date.now();
+    const check = () => {
+      if (!vmConnected || !vmFns) { resolve(false); return; }
+      try {
+        // Try reading a parameter — if VM engine is ready this returns 0
+        const koffi = require('koffi');
+        const buf = Buffer.alloc(4);
+        const result = vmFns.GetParameterFloat('Strip[0].Mute', buf);
+        if (result === 0) {
+          // Drain dirty flag one more time
+          vmFns.IsParametersDirty();
+          resolve(true);
+          return;
+        }
+      } catch(e) {}
+      if (Date.now() - start > timeoutMs) { resolve(false); return; }
+      setTimeout(check, 500);
+    };
+    check();
+  });
+}
+
+function vmSetStripDevice(stripIndex, deviceName) {
+  if (!vmConnected || !vmFns) {
+    console.log('[VM] Not connected, cannot set strip device');
+    return false;
+  }
+  try {
+    // Drain any pending dirty state first
+    vmFns.IsParametersDirty();
+
+    const param = `Strip[${stripIndex}].device.wdm`;
+    console.log(`[VM] Setting ${param} = "${deviceName}"`);
+    const result = vmFns.SetParameterStringA(param, deviceName);
+    console.log(`[VM] SetParameterStringA result: ${result}`);
+
+    if (result !== 0) {
+      // result -1 = error, -2 = no server, -3 = unknown param, -5 = structure mismatch
+      console.log(`[VM] SetParameterStringA failed with code ${result}`);
+      return false;
+    }
+
+    // CRITICAL: Must call IsParametersDirty() after setting parameters
+    // to signal VoiceMeeter to apply the changes
+    let dirty = vmFns.IsParametersDirty();
+    console.log(`[VM] IsParametersDirty after set: ${dirty}`);
+
+    // Poll a few times to ensure VM processes the change
+    let retries = 10;
+    while (retries > 0) {
+      dirty = vmFns.IsParametersDirty();
+      if (dirty === 0) break; // 0 = no more pending changes, all applied
+      retries--;
+      // Small sync delay — we need the change to propagate
+      const end = Date.now() + 50;
+      while (Date.now() < end) {} // busy-wait 50ms (sync context)
+    }
+
+    return true;
+  } catch(e) {
+    console.error('[VM] SetParameterString error:', e);
+    return false;
+  }
+}
+
+// Launch VoiceMeeter via the Remote API (preferred) or by spawning the exe
+async function launchVoicemeeterSilent(vmPathOverride) {
+  // Method 1: Use the Remote API's RunVoicemeeter function
+  // This is the official way — it launches VM and connects in one step
+  if (loadVmLibrary() && vmFns.RunVoicemeeter) {
+    try {
+      // RunVoicemeeter(type): 1=Voicemeeter, 2=Banana, 3=Potato
+      const runResult = vmFns.RunVoicemeeter(1);
+      console.log('[VM] RunVoicemeeter result:', runResult);
+      if (runResult === 0) {
+        // Now login
+        const loginResult = vmFns.Login();
+        console.log('[VM] Post-launch Login result:', loginResult);
+        if (loginResult === 0 || loginResult === -2) {
+          vmConnected = true;
+          // Wait for VM to be ready
+          const ready = await waitForVmReady(10000);
+          console.log('[VM] Ready after RunVoicemeeter:', ready);
+          return { success: true, method: 'api' };
+        }
+      }
+    } catch(e) {
+      console.log('[VM] RunVoicemeeter failed:', e.message);
+    }
+  }
+
+  // Method 2: Spawn the exe directly (fallback)
+  const vmPath = vmPathOverride || findVoicemeeterExe();
+  if (!vmPath || !fs.existsSync(vmPath)) {
+    return { success: false, error: 'VoiceMeeter executable not found. Use VM Path to set it.' };
+  }
+
+  try {
+    const proc = spawn(vmPath, [], { detached: true, stdio: 'ignore', windowsHide: true });
+    proc.unref();
+
+    // Wait for VM to start and become connectable
+    let connected = false;
+    for (let attempt = 0; attempt < 20; attempt++) {
+      await new Promise(r => setTimeout(r, 500));
+      if (connectVoicemeeterRemote()) {
+        connected = true;
+        break;
+      }
+    }
+
+    if (!connected) {
+      return { success: false, error: 'VoiceMeeter launched but could not connect via API' };
+    }
+
+    // Wait for the engine to be ready
+    const ready = await waitForVmReady(10000);
+    console.log('[VM] Ready after exe launch:', ready);
+
+    // Try to hide the window
+    try {
+      const { execSync } = require('child_process');
+      // SW_HIDE = 0 hides the window completely, SW_MINIMIZE = 6 just minimizes
+      const psCmd = `
+        Start-Sleep -Milliseconds 500;
+        $procs = Get-Process | Where-Object { $_.ProcessName -match 'voicemeeter' };
+        foreach ($p in $procs) {
+          if ($p.MainWindowHandle -ne 0) {
+            Add-Type -TypeDefinition 'using System;using System.Runtime.InteropServices;public class Win32{[DllImport("user32.dll")]public static extern bool ShowWindow(IntPtr hWnd,int nCmdShow);}';
+            [Win32]::ShowWindow($p.MainWindowHandle, 0);
+          }
+        }
+      `.replace(/\n/g, ' ');
+      execSync(`powershell -NoProfile -Command "${psCmd}"`, { timeout: 8000, windowsHide: true });
+    } catch(e) { console.log('[VM] Hide window failed (non-critical):', e.message); }
+
+    return { success: true, method: 'exe' };
+  } catch(e) {
+    return { success: false, error: e.message };
+  }
+}
+
+// Auto-launch and connect VoiceMeeter on app startup
+async function autoSetupVoicemeeter() {
+  const cfg = loadConfig();
+
+  // Step 1: Try to connect (VM may already be running)
+  if (connectVoicemeeterRemote()) {
+    console.log('[VM] Already running, connected on startup');
+    await waitForVmReady(5000);
+    // Notify renderer that VM is ready
+    mainWindow?.webContents.send('vm-status', { connected: true, running: true });
+    return;
+  }
+
+  // Step 2: Auto-launch VoiceMeeter if we can find it
+  const vmPath = cfg.voicemeeterPath || findVoicemeeterExe();
+  if (vmPath) {
+    console.log('[VM] Auto-launching from:', vmPath);
+    const result = await launchVoicemeeterSilent(vmPath);
+    console.log('[VM] Auto-launch result:', result);
+    mainWindow?.webContents.send('vm-status', {
+      connected: vmConnected,
+      running: result.success,
+      autoLaunched: true
+    });
+  } else {
+    console.log('[VM] No VoiceMeeter exe found, skipping auto-launch');
+    mainWindow?.webContents.send('vm-status', { connected: false, running: false });
+  }
+}
+
+// Clean up on exit
+app.on('will-quit', () => {
+  disconnectVoicemeeterRemote();
+});
+
+ipcMain.handle('vm-connect', async () => {
+  const ok = connectVoicemeeterRemote();
+  if (ok) {
+    await waitForVmReady(5000);
+    // Drain dirty flag
+    try { vmFns.IsParametersDirty(); } catch(e) {}
+  }
+  return { success: ok };
+});
+
+ipcMain.handle('vm-set-strip-device', async (_, { stripIndex, deviceName }) => {
+  if (!vmConnected) connectVoicemeeterRemote();
+  if (!vmConnected) return { success: false, error: 'Not connected to Voicemeeter' };
+
+  // Wait for VM to be ready before setting
+  await waitForVmReady(3000);
+
+  const ok = vmSetStripDevice(stripIndex || 0, deviceName);
+  return { success: ok, deviceName };
+});
+
+ipcMain.handle('vm-get-status', async () => {
+  return {
+    connected: vmConnected,
+    dllFound: !!findVoicemeeterDll(),
+    exeFound: !!(loadConfig().voicemeeterPath || findVoicemeeterExe()),
+  };
+});
+
 ipcMain.handle('pick-voicemeeter-path', async () => {
   const result = await dialog.showOpenDialog(mainWindow, {
     title: 'Select VoiceMeeter Executable',
@@ -435,14 +771,6 @@ ipcMain.handle('pick-voicemeeter-path', async () => {
 });
 
 ipcMain.handle('launch-voicemeeter', async (_, vmPath) => {
-  if (!vmPath || !fs.existsSync(vmPath)) {
-    return { success: false, error: 'VoiceMeeter path not found' };
-  }
-  try {
-    const proc = spawn(vmPath, [], { detached: true, stdio: 'ignore', windowsHide: false });
-    proc.unref();
-    return { success: true };
-  } catch(e) {
-    return { success: false, error: e.message };
-  }
+  const result = await launchVoicemeeterSilent(vmPath);
+  return result;
 });
