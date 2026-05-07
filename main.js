@@ -1,7 +1,9 @@
-const { app, BrowserWindow, ipcMain, dialog, Tray, Menu, nativeImage } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, Tray, Menu, nativeImage, shell } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const { spawn } = require('child_process');
+const https = require('https');
+const http = require('http');
 
 // ── Paths ───────────────────────────────────────────────────────────────
 const APP_ROOT = app.isPackaged
@@ -283,6 +285,60 @@ ipcMain.handle('pick-files', async () => {
     properties: ['openFile', 'multiSelections']
   });
   return result.canceled ? [] : result.filePaths;
+});
+
+// ── IPC: open external URL ──────────────────────────────────────────────
+ipcMain.handle('open-external', async (_, url) => {
+  try {
+    await shell.openExternal(url);
+    return true;
+  } catch(e) { return false; }
+});
+
+// ── IPC: fetch URL title ────────────────────────────────────────────────
+function fetchPage(url, maxRedirects = 5) {
+  return new Promise((resolve, reject) => {
+    if (maxRedirects <= 0) return reject(new Error('Too many redirects'));
+    const client = url.startsWith('https') ? https : http;
+    const req = client.get(url, { headers: { 'User-Agent': 'Mozilla/5.0' }, timeout: 8000 }, (res) => {
+      if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
+        let redir = res.headers.location;
+        if (redir.startsWith('/')) { const u = new URL(url); redir = u.origin + redir; }
+        return fetchPage(redir, maxRedirects - 1).then(resolve).catch(reject);
+      }
+      let data = '';
+      res.setEncoding('utf-8');
+      res.on('data', chunk => { data += chunk; if (data.length > 50000) { res.destroy(); resolve(data); } });
+      res.on('end', () => resolve(data));
+    });
+    req.on('error', reject);
+    req.on('timeout', () => { req.destroy(); reject(new Error('timeout')); });
+  });
+}
+
+ipcMain.handle('fetch-url-title', async (_, url) => {
+  try {
+    const html = await fetchPage(url);
+    // Try <title>
+    const titleMatch = html.match(/<title[^>]*>([^<]+)<\/title>/i);
+    if (titleMatch) {
+      let title = titleMatch[1].trim();
+      // Clean up common suffixes
+      title = title.replace(/\s*[-–|]\s*(YouTube|MyInstants|SoundCloud|Voicy|TikTok).*$/i, '').trim();
+      // Decode HTML entities
+      title = title.replace(/&#(\d+);/g, (_, n) => String.fromCharCode(n));
+      title = title.replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#39;/g, "'");
+      if (title) return title;
+    }
+    // Try og:title
+    const ogMatch = html.match(/<meta[^>]*property=["']og:title["'][^>]*content=["']([^"']+)["']/i) ||
+                     html.match(/<meta[^>]*content=["']([^"']+)["'][^>]*property=["']og:title["']/i);
+    if (ogMatch) return ogMatch[1].trim();
+    return null;
+  } catch(e) {
+    console.warn('[fetch-url-title] Error:', e.message);
+    return null;
+  }
 });
 
 // ── IPC: yt-dlp download ────────────────────────────────────────────────

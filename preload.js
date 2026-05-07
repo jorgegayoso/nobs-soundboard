@@ -1,4 +1,4 @@
-const { contextBridge, ipcRenderer } = require('electron');
+const { contextBridge, ipcRenderer, shell } = require('electron');
 
 contextBridge.exposeInMainWorld('api', {
   loadConfig:   () => ipcRenderer.invoke('load-config'),
@@ -9,6 +9,8 @@ contextBridge.exposeInMainWorld('api', {
   getSoundsDir: () => ipcRenderer.invoke('get-sounds-dir'),
   pickVoicemeeterPath: () => ipcRenderer.invoke('pick-voicemeeter-path'),
   launchVoicemeeter: (path) => ipcRenderer.invoke('launch-voicemeeter', path),
+  openExternal: (url) => ipcRenderer.invoke('open-external', url),
+  fetchUrlTitle: (url) => ipcRenderer.invoke('fetch-url-title', url),
   winMinimize:  () => ipcRenderer.send('win-minimize'),
   winMaximize:  () => ipcRenderer.send('win-maximize'),
   winClose:     () => ipcRenderer.send('win-close'),

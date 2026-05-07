@@ -510,6 +510,7 @@ html, body {
   <div id="main"></div>
 
   <div id="bottombar">
+    <button class="bb-btn secondary" id="bulkImportBtn" title="Import multiple URLs at once">Bulk Import</button>
     <button class="bb-btn primary" id="addSoundBtn">+ Add Sound</button>
     <button class="bb-btn secondary" id="browseSoundBtn">Browse Local</button>
     <button class="bb-btn secondary" id="addCatBtn">+ Add Category</button>
@@ -553,6 +554,13 @@ const PUCK_COLORS = {
   yellow: { main: '#f9a825', hi: '#ffee58', lo: '#f57f17' },
 };
 const DEFAULT_CAT_COLORS = ['#00c853','#ff6d00','#d50000','#2962ff','#aa00ff','#00bfa5'];
+
+function hexToRgb(hex) {
+  if (!hex || !hex.startsWith('#')) return null;
+  const h = hex.replace('#', '');
+  const bigint = parseInt(h, 16);
+  return { r: (bigint >> 16) & 255, g: (bigint >> 8) & 255, b: bigint & 255 };
+}
 
 let outputDeviceId = null;
 let inputDeviceId = null;
@@ -935,6 +943,11 @@ function renderPuck(btn, container, isDragEnabled = true) {
   el.className = 'sound-puck';
   el.dataset.btnId = btn.id;
   el.style.setProperty('--cat-color', catColor);
+  // Subtle category tint on puck background (main area only)
+  if (isDragEnabled) {
+    const rgb = hexToRgb(catColor);
+    if (rgb) el.style.background = `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0.05)`;
+  }
   if (btn.favorite) el.classList.add('favorited');
   if (downloadingSet.has(btn.id)) el.classList.add('downloading');
   if (isButtonPlaying(btn.id)) el.classList.add('playing');
@@ -1132,6 +1145,9 @@ function renderCategory(cat, buttons) {
   const frame = document.createElement('div');
   frame.className = 'category-frame';
   frame.style.setProperty('--cat-color', cat.color);
+  // Tinted background from category color
+  const rgb = hexToRgb(cat.color);
+  if (rgb) frame.style.background = `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0.06)`;
   frame.dataset.catId = cat.id;
 
   // Category drag-and-drop (reorder categories) — drag starts from header only
@@ -1776,6 +1792,160 @@ function openEditCategoryModal(existingCat = null) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════
+// BULK IMPORT
+// ═══════════════════════════════════════════════════════════════════════
+function openBulkImportModal() {
+  const root = document.getElementById('modalRoot');
+  root.innerHTML = `
+    <div class="modal-overlay" id="modalOverlay">
+      <div class="modal" style="width:520px;">
+        <h2>Bulk Import URLs</h2>
+        <div class="modal-field">
+          <label>Paste URLs (one per line)</label>
+          <textarea id="bulkUrls" rows="8" placeholder="https://www.youtube.com/watch?v=...&#10;https://www.myinstants.com/instant/...&#10;https://..."
+            style="width:100%;background:var(--bg-card);border:1px solid var(--border);border-radius:6px;color:var(--text-1);font-family:var(--font-mono);font-size:11px;padding:8px 10px;outline:none;resize:vertical;line-height:1.6;"></textarea>
+        </div>
+        <div class="modal-field">
+          <label>Add to Category</label>
+          <select id="bulkCategory">
+            ${config.categories.map(c => `<option value="${c.id}">${c.name}</option>`).join('')}
+          </select>
+        </div>
+        <div class="modal-field">
+          <label>Button Color</label>
+          <div class="color-options" id="bulkColors"></div>
+        </div>
+        <div id="bulkStatus" style="font-family:var(--font-mono);font-size:10px;color:var(--text-3);min-height:18px;margin-bottom:4px;"></div>
+        <div class="modal-actions">
+          <button class="cancel-btn" id="bulkCancel">Cancel</button>
+          <button class="save-btn" id="bulkImport">Import</button>
+        </div>
+      </div>
+    </div>
+  `;
+
+  // Color picker
+  let bulkSelectedColor = 'gray';
+  const bulkColorsEl = document.getElementById('bulkColors');
+
+  Object.entries(PUCK_COLORS).forEach(([name, c]) => {
+    const opt = document.createElement('div');
+    opt.className = 'color-opt' + (name === 'gray' ? ' selected' : '');
+    opt.style.background = c.main; opt.style.color = c.main;
+    opt.dataset.color = name;
+    opt.addEventListener('click', () => {
+      bulkSelectedColor = name;
+      bulkColorsEl.querySelectorAll('.color-opt').forEach(o => o.classList.remove('selected'));
+      opt.classList.add('selected');
+    });
+    bulkColorsEl.appendChild(opt);
+  });
+
+  // Custom colors
+  config.customColors.forEach((hex) => {
+    const opt = document.createElement('div');
+    opt.className = 'color-opt';
+    opt.style.background = hex; opt.style.color = hex;
+    opt.dataset.color = hex;
+    opt.addEventListener('click', () => {
+      bulkSelectedColor = hex;
+      bulkColorsEl.querySelectorAll('.color-opt').forEach(o => o.classList.remove('selected'));
+      opt.classList.add('selected');
+    });
+    bulkColorsEl.appendChild(opt);
+  });
+
+  document.getElementById('bulkCancel').addEventListener('click', closeModal);
+
+  document.getElementById('bulkImport').addEventListener('click', async () => {
+    const text = document.getElementById('bulkUrls').value.trim();
+    if (!text) return;
+    const urls = text.split(/\n+/).map(l => l.trim()).filter(l => l && (l.startsWith('http://') || l.startsWith('https://')));
+    if (urls.length === 0) {
+      document.getElementById('bulkStatus').textContent = 'No valid URLs found.';
+      return;
+    }
+
+    const catId = document.getElementById('bulkCategory').value;
+    const statusEl = document.getElementById('bulkStatus');
+    const importBtn = document.getElementById('bulkImport');
+    importBtn.disabled = true;
+    importBtn.textContent = 'Importing...';
+
+    let added = 0;
+    for (let i = 0; i < urls.length; i++) {
+      const url = urls[i];
+      statusEl.textContent = `Resolving name ${i + 1}/${urls.length}...`;
+
+      // Try to fetch the title from the URL
+      let name = null;
+      if (hasElectron && window.api.fetchUrlTitle) {
+        try { name = await window.api.fetchUrlTitle(url); } catch(e) {}
+      }
+
+      // Fallback: extract name from URL
+      if (!name) {
+        name = extractNameFromUrl(url);
+      }
+
+      config.buttons.push({
+        id: uid(), name: name, source: url,
+        color: bulkSelectedColor, category: catId, keybind: '', favorite: false,
+        volume: 100, gainDb: 0, loopInterval: null
+      });
+      added++;
+    }
+
+    statusEl.textContent = `Added ${added} sound${added !== 1 ? 's' : ''}!`;
+    saveConfig(); renderAll();
+
+    setTimeout(() => closeModal(), 800);
+  });
+
+  setupModalOverlayDismiss();
+  document.getElementById('bulkUrls').focus();
+}
+
+function extractNameFromUrl(url) {
+  try {
+    const u = new URL(url);
+    const host = u.hostname.replace('www.', '');
+
+    // YouTube
+    if (host.includes('youtube.com') || host.includes('youtu.be')) {
+      const vParam = u.searchParams.get('v');
+      if (vParam) return vParam; // will be replaced by fetched title
+      const pathParts = u.pathname.split('/').filter(Boolean);
+      return pathParts[pathParts.length - 1] || 'YouTube Sound';
+    }
+
+    // MyInstants
+    if (host.includes('myinstants.com')) {
+      const match = u.pathname.match(/\/instant\/([^/]+)/);
+      if (match) return match[1].replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+    }
+
+    // SoundCloud
+    if (host.includes('soundcloud.com')) {
+      const parts = u.pathname.split('/').filter(Boolean);
+      if (parts.length >= 2) return parts[parts.length - 1].replace(/-/g, ' ');
+    }
+
+    // Generic: use last path segment
+    const segments = u.pathname.split('/').filter(Boolean);
+    if (segments.length > 0) {
+      let name = segments[segments.length - 1];
+      name = decodeURIComponent(name).replace(/[-_]/g, ' ').replace(/\.\w+$/, '');
+      if (name.length > 3) return name;
+    }
+
+    return host;
+  } catch(e) {
+    return url.substring(0, 40);
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════
 // GLOBAL HOTKEYS (from main process via uiohook)
 // ═══════════════════════════════════════════════════════════════════════
 function handleGlobalInput(combo) {
@@ -2009,7 +2179,7 @@ function openGuideModal() {
   const root = document.getElementById('modalRoot');
   root.innerHTML = `
     <div class="modal-overlay" id="modalOverlay">
-      <div class="modal" style="width:520px;">
+      <div class="modal" style="width:620px;">
         <h2>Setup Guide — Mic Routing</h2>
         <div class="guide-content">
           <p>To play sounds through your microphone in apps like Discord, you need <strong>VoiceMeeter</strong> (free virtual audio mixer).</p>
@@ -2017,13 +2187,13 @@ function openGuideModal() {
           <h3>1. Install VoiceMeeter</h3>
           <div class="step">
             <div class="step-num">1</div>
-            <div class="step-text">Download and install <strong>VoiceMeeter</strong> from <span style="color:var(--accent)">vb-audio.com/Voicemeeter</span>. Restart your PC after installing.</div>
+            <div class="step-text">Download and install <strong>VoiceMeeter</strong> from <a href="#" id="vmLink" style="color:var(--accent);text-decoration:underline;cursor:pointer;">vb-audio.com/Voicemeeter</a>. Restart your PC after installing.</div>
           </div>
 
           <h3>2. Configure VoiceMeeter</h3>
           <div class="step">
             <div class="step-num">2</div>
-            <div class="step-text">Open VoiceMeeter. Under <strong>Hardware Input — Stereo Input 1</strong>, select your real microphone.</div>
+            <div class="step-text">Open VoiceMeeter. Press <strong>Stereo Input 1</strong> and select your real microphone.</div>
           </div>
 
           <h3>3. Configure Nob's Soundboard</h3>
@@ -2043,7 +2213,7 @@ function openGuideModal() {
           </div>
 
           <div class="note">
-            <strong>Important:</strong> VoiceMeeter must be running for mic routing to work. You can use the <strong>Launch VM</strong> button in the bottom bar, or set it to auto-start with Windows.
+            <strong>Important:</strong> VoiceMeeter must be running for mic routing to work. Use the <strong>VM Path</strong> button (bottom-right) to set the path to your VoiceMeeter executable, then use <strong>Launch VM</strong> to start it quickly from within the app. You can also set VoiceMeeter to auto-start with Windows.
           </div>
 
           <h3>5. Clean Up (Optional)</h3>
@@ -2060,6 +2230,14 @@ function openGuideModal() {
     </div>
   `;
   document.getElementById('guideClose').addEventListener('click', closeModal);
+  document.getElementById('vmLink').addEventListener('click', (e) => {
+    e.preventDefault();
+    if (hasElectron && window.api.openExternal) {
+      window.api.openExternal('https://vb-audio.com/Voicemeeter/');
+    } else {
+      window.open('https://vb-audio.com/Voicemeeter/', '_blank');
+    }
+  });
   setupModalOverlayDismiss();
 }
 
@@ -2131,6 +2309,7 @@ async function init() {
 
   document.getElementById('addSoundBtn').addEventListener('click', () => openEditButtonModal());
   document.getElementById('addCatBtn').addEventListener('click', () => openEditCategoryModal());
+  document.getElementById('bulkImportBtn').addEventListener('click', () => openBulkImportModal());
 
   document.getElementById('browseSoundBtn').addEventListener('click', async () => {
     const files = await pickFiles();
