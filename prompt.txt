@@ -1,0 +1,23 @@
+im currently making a soundboard program. it uses voicemeeter to stream sounds into my mic, so (for example) my friends can hear the sounds on discord. currently im trying to make it so that voicemeeter doesnt have to be open for it to work, rather it runs "windowless" and the stereo input 1 gets set to the input device set in the Input dropdown. i however keep getting this error (not sure if the cache errors are a part of it):
+
+[uiohook] Global hotkey listener started
+[4632:0508/004134.906:ERROR:cache_util_win.cc(20)] Unable to move the cache: Access is denied. (0x5)
+[4632:0508/004134.906:ERROR:cache_util_win.cc(20)] Unable to move the cache: Access is denied. (0x5)
+[4632:0508/004134.921:ERROR:disk_cache.cc(208)] Unable to create cache
+[4632:0508/004134.921:ERROR:gpu_disk_cache.cc(676)] Gpu Cache Creation failed: -2
+[4632:0508/004134.921:ERROR:disk_cache.cc(208)] Unable to create cache
+[4632:0508/004134.921:ERROR:gpu_disk_cache.cc(676)] Gpu Cache Creation failed: -2
+[16256:0508/004134.940:ERROR:cache_util_win.cc(20)] Unable to move the cache: Access is denied. (0x5)
+[16256:0508/004134.941:ERROR:disk_cache.cc(208)] Unable to create cache
+[VM] Library loaded from: C:\Program Files (x86)\VB\Voicemeeter\VoicemeeterRemote64.dll
+[VM] Login result: 1
+[VM] VM was launched by Login ÔÇö giving it time to initialize...
+[VM] Connected successfully
+[VM] Already running, connected on startup
+[VM] Engine ready on startup: false
+[VM] Engine ready before set-strip-device: false
+[VM] Cleaned device name: "Headset Microphone (CORSAIR VOID ELITE Wireless Gaming Headset)" (original: "Headset Microphone (CORSAIR VOID ELITE Wireless Gaming Headset) (1b1c:0a51)")
+[VM] Setting Strip[0].device.wdm = "Headset Microphone (CORSAIR VOID ELITE Wireless Gaming Headset)"
+[VM] SetParameterStringA attempt 1 result: -2
+[VM] Engine not ready (attempt 1/10), waiting...
+[VM] SetParameterStringA attempt 2 result: -2

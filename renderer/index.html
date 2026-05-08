@@ -246,6 +246,15 @@ html, body {
   display: none;
 }
 .sound-puck.looping .loop-icon { display: block; }
+
+/* Trim indicator */
+.sound-puck .trim-icon {
+  position: absolute; bottom: 18px; left: 5px;
+  font-size: 8px; color: #ff6d00;
+  filter: drop-shadow(0 0 2px rgba(255, 109, 0, 0.4));
+  display: none;
+}
+.sound-puck.trimmed .trim-icon { display: block; }
 .sound-puck.looping {
   outline: 2px solid var(--cat-color, var(--accent));
   outline-offset: -1px;
@@ -535,6 +544,94 @@ html, body {
   background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
   background-size: 128px 128px; z-index: 9999;
 }
+
+/* ═══ WAVEFORM TRIM UI ═══ */
+.trim-container {
+  display: flex; flex-direction: column; gap: 10px;
+}
+.trim-waveform-wrap {
+  position: relative;
+  background: var(--bg-base);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+  height: 100px;
+  cursor: crosshair;
+}
+.trim-waveform-canvas {
+  width: 100%; height: 100%;
+  display: block;
+}
+.trim-region-overlay {
+  position: absolute; top: 0; bottom: 0;
+  pointer-events: none;
+}
+.trim-region-dim-left, .trim-region-dim-right {
+  position: absolute; top: 0; bottom: 0;
+  background: rgba(0, 0, 0, 0.55);
+  pointer-events: none;
+}
+.trim-region-dim-left { left: 0; }
+.trim-region-dim-right { right: 0; }
+.trim-handle {
+  position: absolute; top: 0; bottom: 0; width: 6px;
+  cursor: col-resize; z-index: 3;
+  display: flex; align-items: center; justify-content: center;
+}
+.trim-handle::before {
+  content: ''; width: 2px; height: 100%;
+  border-radius: 1px;
+}
+.trim-handle-start { transform: translateX(-3px); }
+.trim-handle-start::before { background: var(--accent); box-shadow: 0 0 6px var(--accent-glow); }
+.trim-handle-end { transform: translateX(-3px); }
+.trim-handle-end::before { background: #ff6d00; box-shadow: 0 0 6px rgba(255, 109, 0, 0.4); }
+.trim-playhead {
+  position: absolute; top: 0; bottom: 0; width: 2px;
+  background: #fff; opacity: 0.8; pointer-events: none; z-index: 2;
+  display: none;
+}
+.trim-playhead.visible { display: block; }
+.trim-time-row {
+  display: flex; align-items: center; gap: 8px;
+}
+.trim-time-field {
+  display: flex; align-items: center; gap: 4px; flex: 1;
+}
+.trim-time-field label {
+  font-family: var(--font-mono); font-size: 10px; color: var(--text-3);
+  text-transform: uppercase; letter-spacing: 0.5px; min-width: 40px;
+}
+.trim-time-input {
+  width: 80px; background: var(--bg-card); border: 1px solid var(--border);
+  border-radius: 5px; color: var(--text-1);
+  font-family: var(--font-mono); font-size: 11px;
+  padding: 5px 7px; outline: none; text-align: center;
+}
+.trim-time-input:focus { border-color: var(--accent); }
+.trim-time-input.start-input:focus { border-color: var(--accent); }
+.trim-time-input.end-input:focus { border-color: #ff6d00; }
+.trim-duration {
+  font-family: var(--font-mono); font-size: 10px; color: var(--text-2);
+  text-align: center; flex: 1;
+}
+.trim-controls {
+  display: flex; align-items: center; gap: 6px;
+}
+.trim-play-btn {
+  width: 32px; height: 32px; border-radius: 50%;
+  background: var(--bg-card); border: 1px solid var(--border);
+  color: var(--accent); font-size: 14px;
+  display: flex; align-items: center; justify-content: center;
+  cursor: pointer; transition: all 0.15s;
+}
+.trim-play-btn:hover { background: var(--bg-hover); border-color: var(--accent); }
+.trim-play-btn.playing { background: var(--accent); color: #000; border-color: var(--accent); }
+.trim-blocked-msg {
+  font-family: var(--font-mono); font-size: 11px; color: var(--text-3);
+  text-align: center; padding: 30px 20px; line-height: 1.6;
+}
+.trim-blocked-msg .icon { font-size: 24px; display: block; margin-bottom: 8px; }
 </style>
 </head>
 <body>
@@ -683,8 +780,13 @@ function getAudioContext(deviceId) {
 
 function stopAll() {
   activeSounds.forEach(s => {
-    if (s.outputAudio) { s.outputAudio.pause(); s.outputAudio.currentTime = 0; }
-    if (s.inputAudio) { s.inputAudio.pause(); s.inputAudio.currentTime = 0; }
+    // Disconnect Web Audio nodes to free memory
+    if (s.outputSource) { try { s.outputSource.disconnect(); } catch(e) {} }
+    if (s.outputGain) { try { s.outputGain.disconnect(); } catch(e) {} }
+    if (s.inputSource) { try { s.inputSource.disconnect(); } catch(e) {} }
+    if (s.inputGain) { try { s.inputGain.disconnect(); } catch(e) {} }
+    if (s.outputAudio) { s.outputAudio.pause(); s.outputAudio.src = ''; s.outputAudio.load(); }
+    if (s.inputAudio) { s.inputAudio.pause(); s.inputAudio.src = ''; s.inputAudio.load(); }
     if (s.puckEl) s.puckEl.classList.remove('playing');
   });
   activeSounds = [];
@@ -695,13 +797,23 @@ function stopAll() {
   });
   activeLoops = {};
   document.querySelectorAll('.sound-puck.looping').forEach(el => el.classList.remove('looping'));
+
+  // Close and clear all cached AudioContexts to fully release audio resources
+  Object.keys(audioContextCache).forEach(key => {
+    try { audioContextCache[key].close(); } catch(e) {}
+    delete audioContextCache[key];
+  });
 }
 
 function stopButton(btnId) {
   const toStop = activeSounds.filter(s => s.btnId === btnId);
   toStop.forEach(s => {
-    if (s.outputAudio) { s.outputAudio.pause(); s.outputAudio.currentTime = 0; }
-    if (s.inputAudio) { s.inputAudio.pause(); s.inputAudio.currentTime = 0; }
+    if (s.outputSource) { try { s.outputSource.disconnect(); } catch(e) {} }
+    if (s.outputGain) { try { s.outputGain.disconnect(); } catch(e) {} }
+    if (s.inputSource) { try { s.inputSource.disconnect(); } catch(e) {} }
+    if (s.inputGain) { try { s.inputGain.disconnect(); } catch(e) {} }
+    if (s.outputAudio) { s.outputAudio.pause(); s.outputAudio.src = ''; s.outputAudio.load(); }
+    if (s.inputAudio) { s.inputAudio.pause(); s.inputAudio.src = ''; s.inputAudio.load(); }
     if (s.puckEl) { s.puckEl.classList.remove('playing'); s.puckEl.classList.remove('looping'); }
   });
   activeSounds = activeSounds.filter(s => s.btnId !== btnId);
@@ -780,7 +892,7 @@ async function playSoundWithLoopOnEnd(btn, puckEl) {
   const hasInput = recToInput && !!virtualCableDeviceId;
   if (!hasOutput && !hasInput) return;
 
-  const entry = { btnId: btn.id, outputAudio: null, inputAudio: null, puckEl: puckEl || null };
+  const entry = { btnId: btn.id, outputAudio: null, inputAudio: null, outputSource: null, inputSource: null, outputGain: null, inputGain: null, puckEl: puckEl || null };
 
   const onEnded = () => {
     removeFinishedSound(entry);
@@ -792,17 +904,19 @@ async function playSoundWithLoopOnEnd(btn, puckEl) {
 
   try {
     if (hasOutput) {
-      const { audio, gainNode } = createAmplifiedAudio(url, outputDeviceId, finalVol);
+      const { audio, gainNode, sourceNode } = createAmplifiedAudio(url, outputDeviceId, finalVol, btn.trimStart, btn.trimEnd);
       entry.outputAudio = audio;
       entry.outputGain = gainNode;
+      entry.outputSource = sourceNode;
       audio.play();
       audio.addEventListener('ended', () => { entry.outputAudio = null; if (!entry.inputAudio) onEnded(); });
       audio.addEventListener('error', () => { entry.outputAudio = null; if (!entry.inputAudio) onEnded(); });
     }
     if (hasInput) {
-      const { audio: audio2, gainNode: gainNode2 } = createAmplifiedAudio(url, virtualCableDeviceId, finalVol);
+      const { audio: audio2, gainNode: gainNode2, sourceNode: sourceNode2 } = createAmplifiedAudio(url, virtualCableDeviceId, finalVol, btn.trimStart, btn.trimEnd);
       entry.inputAudio = audio2;
       entry.inputGain = gainNode2;
+      entry.inputSource = sourceNode2;
       audio2.play();
       audio2.addEventListener('ended', () => { entry.inputAudio = null; if (!entry.outputAudio) onEnded(); });
       audio2.addEventListener('error', () => { entry.inputAudio = null; if (!entry.outputAudio) onEnded(); });
@@ -817,6 +931,14 @@ function isButtonPlaying(btnId) {
 }
 
 function removeFinishedSound(entry) {
+  // Disconnect Web Audio nodes to free memory
+  if (entry.outputSource) { try { entry.outputSource.disconnect(); } catch(e) {} }
+  if (entry.outputGain) { try { entry.outputGain.disconnect(); } catch(e) {} }
+  if (entry.inputSource) { try { entry.inputSource.disconnect(); } catch(e) {} }
+  if (entry.inputGain) { try { entry.inputGain.disconnect(); } catch(e) {} }
+  // Release audio elements
+  if (entry.outputAudio) { entry.outputAudio.src = ''; entry.outputAudio.load(); }
+  if (entry.inputAudio) { entry.inputAudio.src = ''; entry.inputAudio.load(); }
   activeSounds = activeSounds.filter(s => s !== entry);
   if (entry.puckEl && !activeSounds.some(s => s.btnId === entry.btnId)) {
     entry.puckEl.classList.remove('playing');
@@ -824,20 +946,40 @@ function removeFinishedSound(entry) {
 }
 
 // Create an Audio element routed through a Web Audio GainNode for true amplification
-function createAmplifiedAudio(url, deviceId, volume) {
+// Returns { audio, gainNode, sourceNode } — sourceNode must be disconnected on cleanup
+function createAmplifiedAudio(url, deviceId, volume, trimStart, trimEnd) {
   const audio = new Audio();
   audio.crossOrigin = 'anonymous';
   audio.src = url;
 
+  // Apply trim start
+  if (trimStart !== null && trimStart !== undefined && trimStart > 0) {
+    audio.currentTime = trimStart;
+  }
+
+  // Apply trim end — stop playback when reaching the end point
+  if (trimEnd !== null && trimEnd !== undefined && trimEnd > 0) {
+    const startTime = (trimStart && trimStart > 0) ? trimStart : 0;
+    audio.addEventListener('timeupdate', function trimCheck() {
+      if (audio.currentTime >= trimEnd) {
+        audio.pause();
+        audio.removeEventListener('timeupdate', trimCheck);
+        // Fire ended event manually so cleanup runs
+        audio.dispatchEvent(new Event('ended'));
+      }
+    });
+  }
+
   // Try to use Web Audio API for gain beyond 1.0
   let gainNode = null;
+  let sourceNode = null;
   let ctx = null;
   try {
     ctx = getAudioContext(deviceId);
-    const source = ctx.createMediaElementSource(audio);
+    sourceNode = ctx.createMediaElementSource(audio);
     gainNode = ctx.createGain();
     gainNode.gain.value = volume; // can exceed 1.0!
-    source.connect(gainNode);
+    sourceNode.connect(gainNode);
     gainNode.connect(ctx.destination);
   } catch(e) {
     // Fallback: setSinkId on the audio element directly, clamp volume
@@ -848,7 +990,7 @@ function createAmplifiedAudio(url, deviceId, volume) {
     }
   }
 
-  return { audio, gainNode };
+  return { audio, gainNode, sourceNode };
 }
 
 async function playSound(btn, puckEl) {
@@ -872,13 +1014,14 @@ async function playSound(btn, puckEl) {
 
   if (!hasOutput && !hasInput) return;
 
-  const entry = { btnId: btn.id, outputAudio: null, inputAudio: null, puckEl: puckEl || null };
+  const entry = { btnId: btn.id, outputAudio: null, inputAudio: null, outputSource: null, inputSource: null, outputGain: null, inputGain: null, puckEl: puckEl || null };
 
   try {
     if (hasOutput) {
-      const { audio, gainNode } = createAmplifiedAudio(url, outputDeviceId, finalVol);
+      const { audio, gainNode, sourceNode } = createAmplifiedAudio(url, outputDeviceId, finalVol, btn.trimStart, btn.trimEnd);
       entry.outputAudio = audio;
       entry.outputGain = gainNode;
+      entry.outputSource = sourceNode;
       audio.play();
 
       audio.addEventListener('ended', () => { entry.outputAudio = null; if (!entry.inputAudio) removeFinishedSound(entry); });
@@ -886,9 +1029,10 @@ async function playSound(btn, puckEl) {
     }
 
     if (hasInput) {
-      const { audio: audio2, gainNode: gainNode2 } = createAmplifiedAudio(url, virtualCableDeviceId, finalVol);
+      const { audio: audio2, gainNode: gainNode2, sourceNode: sourceNode2 } = createAmplifiedAudio(url, virtualCableDeviceId, finalVol, btn.trimStart, btn.trimEnd);
       entry.inputAudio = audio2;
       entry.inputGain = gainNode2;
+      entry.inputSource = sourceNode2;
       audio2.play();
 
       audio2.addEventListener('ended', () => { entry.inputAudio = null; if (!entry.outputAudio) removeFinishedSound(entry); });
@@ -1000,6 +1144,8 @@ async function loadConfigFromDisk() {
     if (b.loopInterval === undefined) b.loopInterval = null; // null = no loop, -1 = repeat on end, -2 = random interval, >0 = seconds
     if (b.loopRandomMin === undefined) b.loopRandomMin = 1;
     if (b.loopRandomMax === undefined) b.loopRandomMax = 5;
+    if (b.trimStart === undefined) b.trimStart = null; // null = from beginning (seconds)
+    if (b.trimEnd === undefined) b.trimEnd = null;     // null = to end (seconds)
   });
 }
 
@@ -1100,11 +1246,13 @@ function renderPuck(btn, container, isDragEnabled = true) {
   if (isButtonPlaying(btn.id)) el.classList.add('playing');
   if (activeLoops[btn.id]) el.classList.add('looping');
   if (bulkSelectMode && bulkSelectedIds.has(btn.id)) el.classList.add('bulk-selected');
+  if (btn.trimStart !== null || btn.trimEnd !== null) el.classList.add('trimmed');
 
   if (isDragEnabled && !bulkSelectMode) el.draggable = true;
 
   el.innerHTML = `
     <span class="loop-icon">\u21BB</span>
+    <span class="trim-icon">\u2702</span>
     <span class="fav-star">\u2605</span>
     <div class="puck-circle" style="background:${colors.main}; color:${colors.main}; border-bottom: 3px solid ${colors.lo};"></div>
     <div class="puck-label" title="${btn.name}">${btn.name}</div>
@@ -1263,6 +1411,9 @@ function renderPuck(btn, container, isDragEnabled = true) {
 
     // Loop config
     items.push({ label: '\u2699 Loop Settings', action: () => openLoopModal(btn) });
+
+    // Trim
+    items.push({ label: '\u2702 Trim Audio', action: () => openTrimModal(btn) });
 
     items.push('---');
     items.push({ label: '\uD83D\uDDD1 Delete', danger: true, action: () => { config.buttons = config.buttons.filter(b => b !== btn); saveConfig(); renderAll(); } });
@@ -1882,6 +2033,7 @@ function openEditButtonModal(existingBtn = null, defaultCatId = null) {
           <div class="keybind-clear" id="keybindClear">clear keybind</div>
         </div>
         <div class="modal-actions">
+          <button class="cancel-btn" id="mTrim" style="margin-right:auto;font-size:10px;padding:5px 12px;border-color:var(--accent-dim);color:var(--accent);" title="Trim audio start/end points">✂ Trim</button>
           <button class="cancel-btn" id="mCancel">Cancel</button>
           <button class="save-btn" id="mSave">Save</button>
         </div>
@@ -2166,11 +2318,45 @@ function openEditButtonModal(existingBtn = null, defaultCatId = null) {
     } else {
       config.buttons.push({
         id: uid(), name, source, color, category,
-        keybind: recordedKeybind, favorite: false, volume, gainDb, loopInterval: null
+        keybind: recordedKeybind, favorite: false, volume, gainDb, loopInterval: null,
+        trimStart: null, trimEnd: null
       });
     }
     keybindListening = false; keybindCallback = null; keybindLiveCallback = null;
     saveConfig(); renderAll(); closeModal();
+  });
+
+  // Trim button
+  document.getElementById('mTrim').addEventListener('click', () => {
+    // Save current edits first
+    const name = document.getElementById('mName').value.trim();
+    const source = document.getElementById('mSource').value.trim();
+    const color = selectedColor;
+    const category = document.getElementById('mCategory').value;
+    const volume = parseInt(volSlider.value);
+    const gainDb = currentGain;
+
+    if (isEdit) {
+      Object.assign(btn, { name, source, color, category, keybind: recordedKeybind, volume, gainDb });
+      saveConfig();
+    } else {
+      // Must save as new button first
+      if (!name || !source) { alert('Enter a name and source first.'); return; }
+      const newBtn = {
+        id: uid(), name, source, color, category,
+        keybind: recordedKeybind, favorite: false, volume, gainDb, loopInterval: null,
+        trimStart: null, trimEnd: null
+      };
+      config.buttons.push(newBtn);
+      saveConfig(); renderAll();
+      keybindListening = false; keybindCallback = null; keybindLiveCallback = null;
+      closeModal();
+      openTrimModal(newBtn);
+      return;
+    }
+    keybindListening = false; keybindCallback = null; keybindLiveCallback = null;
+    closeModal();
+    openTrimModal(btn);
   });
 
   document.getElementById('mCancel').addEventListener('click', closeModal);
@@ -2213,6 +2399,339 @@ function openEditCategoryModal(existingCat = null) {
   document.getElementById('mcCancel').addEventListener('click', closeModal);
   setupModalOverlayDismiss();
   document.getElementById('mcName').focus();
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// TRIM / WAVEFORM UI
+// ═══════════════════════════════════════════════════════════════════════
+function openTrimModal(btn) {
+  const resolvedPath = btn.resolvedPath || btn.source;
+  const isLocal = resolvedPath && !isUrl(resolvedPath);
+
+  const root = document.getElementById('modalRoot');
+
+  if (!isLocal) {
+    // Audio not downloaded yet — show blocked message
+    root.innerHTML = `
+      <div class="modal-overlay" id="modalOverlay">
+        <div class="modal" style="width:500px;">
+          <h2>Trim Audio — ${btn.name}</h2>
+          <div class="trim-blocked-msg">
+            <span class="icon">⚠️</span>
+            Audio must be downloaded first before trimming.<br>
+            Play the sound once to download it, then try again.
+          </div>
+          <div class="modal-actions">
+            <button class="cancel-btn" id="trimClose">Close</button>
+          </div>
+        </div>
+      </div>
+    `;
+    document.getElementById('trimClose').addEventListener('click', closeModal);
+    setupModalOverlayDismiss();
+    return;
+  }
+
+  root.innerHTML = `
+    <div class="modal-overlay" id="modalOverlay">
+      <div class="modal" style="width:560px;">
+        <h2>Trim Audio — ${btn.name}</h2>
+        <div class="trim-container">
+          <div class="trim-waveform-wrap" id="trimWaveformWrap">
+            <canvas class="trim-waveform-canvas" id="trimCanvas"></canvas>
+            <div class="trim-region-dim-left" id="trimDimLeft"></div>
+            <div class="trim-region-dim-right" id="trimDimRight"></div>
+            <div class="trim-handle trim-handle-start" id="trimHandleStart"></div>
+            <div class="trim-handle trim-handle-end" id="trimHandleEnd"></div>
+            <div class="trim-playhead" id="trimPlayhead"></div>
+          </div>
+          <div class="trim-time-row">
+            <div class="trim-controls">
+              <button class="trim-play-btn" id="trimPlayBtn" title="Preview trimmed audio">▶</button>
+            </div>
+            <div class="trim-time-field">
+              <label style="color:var(--accent);">Start</label>
+              <input type="text" class="trim-time-input start-input" id="trimStartInput" value="0.00">
+            </div>
+            <div class="trim-duration" id="trimDuration">0.00s</div>
+            <div class="trim-time-field" style="justify-content:flex-end;">
+              <label style="color:#ff6d00;">End</label>
+              <input type="text" class="trim-time-input end-input" id="trimEndInput" value="0.00">
+            </div>
+          </div>
+        </div>
+        <div class="modal-actions" style="justify-content:space-between;">
+          <button class="cancel-btn" id="trimCreateNew" style="font-size:10px;padding:5px 10px;border-color:var(--accent-dim);color:var(--accent);" title="Create a new button using this trim range">+ Create New</button>
+          <div style="display:flex;gap:8px;">
+            <button class="cancel-btn" id="trimCancel">Cancel</button>
+            <button class="save-btn" id="trimSave">Save Trim</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  `;
+
+  const canvas = document.getElementById('trimCanvas');
+  const wrap = document.getElementById('trimWaveformWrap');
+  const ctx = canvas.getContext('2d');
+  const handleStart = document.getElementById('trimHandleStart');
+  const handleEnd = document.getElementById('trimHandleEnd');
+  const dimLeft = document.getElementById('trimDimLeft');
+  const dimRight = document.getElementById('trimDimRight');
+  const playhead = document.getElementById('trimPlayhead');
+  const startInput = document.getElementById('trimStartInput');
+  const endInput = document.getElementById('trimEndInput');
+  const durationEl = document.getElementById('trimDuration');
+  const playBtn = document.getElementById('trimPlayBtn');
+
+  let audioDuration = 0;
+  let trimStartSec = btn.trimStart || 0;
+  let trimEndSec = btn.trimEnd || 0;
+  let waveformData = null;
+  let previewAudio = null;
+  let previewAnimFrame = null;
+
+  // Sizing
+  function sizeCanvas() {
+    const rect = wrap.getBoundingClientRect();
+    canvas.width = rect.width * window.devicePixelRatio;
+    canvas.height = rect.height * window.devicePixelRatio;
+    canvas.style.width = rect.width + 'px';
+    canvas.style.height = rect.height + 'px';
+  }
+
+  function updateHandles() {
+    if (!audioDuration) return;
+    const startFrac = trimStartSec / audioDuration;
+    const endFrac = trimEndSec / audioDuration;
+    handleStart.style.left = (startFrac * 100) + '%';
+    handleEnd.style.left = (endFrac * 100) + '%';
+    dimLeft.style.width = (startFrac * 100) + '%';
+    dimRight.style.width = ((1 - endFrac) * 100) + '%';
+    startInput.value = trimStartSec.toFixed(2);
+    endInput.value = trimEndSec.toFixed(2);
+    const dur = trimEndSec - trimStartSec;
+    durationEl.textContent = dur.toFixed(2) + 's';
+  }
+
+  function drawWaveform() {
+    if (!waveformData) return;
+    sizeCanvas();
+    const w = canvas.width;
+    const h = canvas.height;
+    const dpr = window.devicePixelRatio;
+    ctx.clearRect(0, 0, w, h);
+
+    // Draw waveform bars
+    const barCount = Math.min(waveformData.length, Math.floor(w / (2 * dpr)));
+    const barWidth = w / barCount;
+    const step = Math.max(1, Math.floor(waveformData.length / barCount));
+
+    for (let i = 0; i < barCount; i++) {
+      const idx = Math.min(i * step, waveformData.length - 1);
+      const val = waveformData[idx];
+      const barH = Math.max(1, val * h * 0.9);
+      const x = i * barWidth;
+      const y = (h - barH) / 2;
+
+      // Color based on whether this position is in the trimmed region
+      const timeFrac = i / barCount;
+      const timeSec = timeFrac * audioDuration;
+      const inRange = timeSec >= trimStartSec && timeSec <= trimEndSec;
+
+      ctx.fillStyle = inRange ? 'rgba(230, 230, 240, 0.85)' : 'rgba(100, 100, 120, 0.35)';
+      ctx.fillRect(x + 0.5, y, Math.max(1, barWidth - 1), barH);
+    }
+  }
+
+  // Load audio and decode for waveform
+  async function loadAudio() {
+    let audioData;
+    try {
+      // Use custom protocol registered in main process — avoids CORS and base64 IPC issues
+      const encodedPath = encodeURIComponent(resolvedPath);
+      const url = `local-audio://read/${encodedPath}`;
+      const resp = await fetch(url);
+      if (!resp.ok) throw new Error(`Failed to load audio: ${resp.status} ${resp.statusText}`);
+      audioData = await resp.arrayBuffer();
+
+      // Decode audio using standard AudioContext
+      const actx = new (window.AudioContext || window.webkitAudioContext)();
+      const decoded = await actx.decodeAudioData(audioData);
+      actx.close();
+
+      audioDuration = decoded.duration;
+      if (trimEndSec <= 0 || trimEndSec > audioDuration) trimEndSec = audioDuration;
+      if (trimStartSec >= trimEndSec) trimStartSec = 0;
+
+      // Extract waveform peaks
+      const channelData = decoded.getChannelData(0);
+      const numBars = 300;
+      const samplesPerBar = Math.max(1, Math.floor(channelData.length / numBars));
+      waveformData = new Float32Array(numBars);
+      for (let i = 0; i < numBars; i++) {
+        let maxVal = 0;
+        const start = i * samplesPerBar;
+        for (let j = start; j < start + samplesPerBar && j < channelData.length; j++) {
+          const abs = Math.abs(channelData[j]);
+          if (abs > maxVal) maxVal = abs;
+        }
+        waveformData[i] = maxVal;
+      }
+
+      drawWaveform();
+      updateHandles();
+    } catch(e) {
+      console.error('Waveform load error:', e);
+      ctx.font = '12px monospace';
+      ctx.fillStyle = '#ff4444';
+      ctx.fillText('Error loading audio: ' + e.message, 10, 50);
+    }
+  }
+
+  // Handle dragging
+  let draggingHandle = null;
+
+  function getTimeFromX(clientX) {
+    const rect = wrap.getBoundingClientRect();
+    const frac = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
+    return frac * audioDuration;
+  }
+
+  handleStart.addEventListener('mousedown', (e) => { e.preventDefault(); draggingHandle = 'start'; });
+  handleEnd.addEventListener('mousedown', (e) => { e.preventDefault(); draggingHandle = 'end'; });
+
+  document.addEventListener('mousemove', trimMouseMove);
+  document.addEventListener('mouseup', trimMouseUp);
+
+  function trimMouseMove(e) {
+    if (!draggingHandle || !audioDuration) return;
+    const t = getTimeFromX(e.clientX);
+    if (draggingHandle === 'start') {
+      trimStartSec = Math.max(0, Math.min(t, trimEndSec - 0.01));
+    } else {
+      trimEndSec = Math.max(trimStartSec + 0.01, Math.min(t, audioDuration));
+    }
+    updateHandles();
+    drawWaveform();
+  }
+
+  function trimMouseUp() {
+    draggingHandle = null;
+  }
+
+  // Input fields
+  startInput.addEventListener('change', () => {
+    const val = parseFloat(startInput.value);
+    if (!isNaN(val) && val >= 0 && val < trimEndSec) {
+      trimStartSec = val;
+      updateHandles(); drawWaveform();
+    } else {
+      startInput.value = trimStartSec.toFixed(2);
+    }
+  });
+
+  endInput.addEventListener('change', () => {
+    const val = parseFloat(endInput.value);
+    if (!isNaN(val) && val > trimStartSec && val <= audioDuration) {
+      trimEndSec = val;
+      updateHandles(); drawWaveform();
+    } else {
+      endInput.value = trimEndSec.toFixed(2);
+    }
+  });
+
+  // Preview playback
+  function stopPreview() {
+    if (previewAudio) {
+      previewAudio.pause();
+      previewAudio.src = '';
+      previewAudio.load();
+      previewAudio = null;
+    }
+    cancelAnimationFrame(previewAnimFrame);
+    playhead.classList.remove('visible');
+    playBtn.classList.remove('playing');
+    playBtn.textContent = '▶';
+  }
+
+  playBtn.addEventListener('click', () => {
+    if (previewAudio) { stopPreview(); return; }
+    let url = resolvedPath;
+    if (resolvedPath.match(/^[A-Z]:\\/i) || resolvedPath.startsWith('/')) {
+      url = 'file:///' + resolvedPath.replace(/\\/g, '/');
+    }
+    previewAudio = new Audio(url);
+    previewAudio.currentTime = trimStartSec;
+    previewAudio.volume = Math.min((config.volume / 100) * ((btn.volume ?? 100) / 100), 1);
+    previewAudio.play();
+    playBtn.classList.add('playing');
+    playBtn.textContent = '■';
+    playhead.classList.add('visible');
+
+    function animatePlayhead() {
+      if (!previewAudio) return;
+      if (previewAudio.currentTime >= trimEndSec) {
+        stopPreview();
+        return;
+      }
+      const frac = (previewAudio.currentTime / audioDuration);
+      playhead.style.left = (frac * 100) + '%';
+      previewAnimFrame = requestAnimationFrame(animatePlayhead);
+    }
+    animatePlayhead();
+
+    previewAudio.addEventListener('ended', stopPreview);
+  });
+
+  // Save
+  document.getElementById('trimSave').addEventListener('click', () => {
+    btn.trimStart = trimStartSec > 0.001 ? trimStartSec : null;
+    btn.trimEnd = (trimEndSec < audioDuration - 0.001) ? trimEndSec : null;
+    saveConfig(); renderAll();
+    stopPreview();
+    document.removeEventListener('mousemove', trimMouseMove);
+    document.removeEventListener('mouseup', trimMouseUp);
+    closeModal();
+  });
+
+  // Create New — makes a duplicate button with this trim
+  document.getElementById('trimCreateNew').addEventListener('click', () => {
+    const newBtn = JSON.parse(JSON.stringify(btn));
+    newBtn.id = uid();
+    newBtn.name = btn.name + ' (trimmed)';
+    newBtn.trimStart = trimStartSec > 0.001 ? trimStartSec : null;
+    newBtn.trimEnd = (trimEndSec < audioDuration - 0.001) ? trimEndSec : null;
+    config.buttons.push(newBtn);
+    saveConfig(); renderAll();
+    stopPreview();
+    document.removeEventListener('mousemove', trimMouseMove);
+    document.removeEventListener('mouseup', trimMouseUp);
+    closeModal();
+  });
+
+  document.getElementById('trimCancel').addEventListener('click', () => {
+    stopPreview();
+    document.removeEventListener('mousemove', trimMouseMove);
+    document.removeEventListener('mouseup', trimMouseUp);
+    closeModal();
+  });
+
+  // Override modal overlay dismiss to also cleanup
+  const overlay = document.getElementById('modalOverlay');
+  let mdOnOverlay = false;
+  overlay.addEventListener('mousedown', (e) => { mdOnOverlay = (e.target.id === 'modalOverlay'); });
+  overlay.addEventListener('mouseup', (e) => {
+    if (mdOnOverlay && e.target.id === 'modalOverlay') {
+      stopPreview();
+      document.removeEventListener('mousemove', trimMouseMove);
+      document.removeEventListener('mouseup', trimMouseUp);
+      closeModal();
+    }
+    mdOnOverlay = false;
+  });
+
+  loadAudio();
 }
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -2707,6 +3226,25 @@ async function init() {
   // Restore recToInput state (default ON for first startup)
   recToInput = config.recToInput ?? true;
   updateRecToggle();
+
+  // Listen for VoiceMeeter status updates from main process (e.g. after auto-launch)
+  if (hasElectron && window.api.onVmStatus) {
+    window.api.onVmStatus(async (status) => {
+      console.log('[renderer] VM status update:', status);
+      // Re-scan devices — VM may have created new virtual audio devices
+      await refreshDevices();
+      updateRecToggle();
+      // Auto-set strip device if we have an input selected
+      if (status.connected && inSel.value) {
+        const selectedOption = inSel.options[inSel.selectedIndex];
+        if (selectedOption && selectedOption.textContent) {
+          try {
+            await window.api.vmSetStripDevice({ stripIndex: 0, deviceName: selectedOption.textContent });
+          } catch(e) { console.log('VM strip set on status update failed:', e.message); }
+        }
+      }
+    });
+  }
 
   // Try to connect to Voicemeeter Remote API on startup and set strip device
   if (hasElectron) {

@@ -72,6 +72,16 @@ function createWindow() {
     autoSetupVoicemeeter();
   });
 
+  // Recover from renderer crashes
+  mainWindow.webContents.on('render-process-gone', (event, details) => {
+    console.error('[CRASH] Renderer gone:', details.reason, details.exitCode);
+    setTimeout(() => {
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.loadFile('renderer/index.html');
+      }
+    }, 500);
+  });
+
   // Hide to tray instead of closing
   mainWindow.on('close', (e) => {
     if (!isQuitting) {
@@ -118,6 +128,29 @@ function createTray() {
 }
 
 app.whenReady().then(() => {
+  // Register a custom protocol to serve local audio files to the renderer.
+  // This avoids file:// CORS issues and base64 IPC memory bombs.
+  const { protocol } = require('electron');
+  protocol.handle('local-audio', (request) => {
+    // URL format: local-audio://read/<encoded-path>
+    try {
+      const url = new URL(request.url);
+      const filePath = decodeURIComponent(url.pathname.replace(/^\/+/, ''));
+      // On Windows, pathname comes as /C:/path — strip leading slash
+      const cleanPath = filePath.replace(/^\/([A-Z]:)/i, '$1');
+      if (!fs.existsSync(cleanPath)) {
+        return new Response('Not found', { status: 404 });
+      }
+      const ext = path.extname(cleanPath).toLowerCase().slice(1);
+      const mimeMap = { mp3: 'audio/mpeg', wav: 'audio/wav', ogg: 'audio/ogg', m4a: 'audio/mp4', flac: 'audio/flac', opus: 'audio/opus', aac: 'audio/aac', webm: 'audio/webm' };
+      const mime = mimeMap[ext] || 'application/octet-stream';
+      const data = fs.readFileSync(cleanPath);
+      return new Response(data, { headers: { 'Content-Type': mime } });
+    } catch(e) {
+      return new Response(e.message, { status: 500 });
+    }
+  });
+
   ensureDirs();
   createWindow();
   createTray();
@@ -169,6 +202,16 @@ const MOUSE_BUTTON_MAP = {
   1: 'Mouse1', 2: 'Mouse3', 3: 'Mouse2', 4: 'Mouse4', 5: 'Mouse5'
 };
 
+function safeSend(channel, ...args) {
+  try {
+    if (!mainWindow || mainWindow.isDestroyed()) return;
+    const wc = mainWindow.webContents;
+    if (!wc || wc.isDestroyed()) return;
+    try { if (!wc.mainFrame) return; } catch(e) { return; }
+    wc.send(channel, ...args);
+  } catch (e) { /* frame disposed between checks */ }
+}
+
 let uioHeld = { ctrl: false, shift: false, alt: false };
 // Track currently held keys/buttons for building combos live
 let uioHeldKeys = new Set(); // non-modifier keys currently held
@@ -189,17 +232,17 @@ function setupGlobalHotkeys() {
     const key = UIOHOOK_KEYCODE_MAP[e.keycode];
     if (!key) return;
 
-    if (key === 'Control') { uioHeld.ctrl = true; clearTimeout(uioModifierReleaseTimer); updatePeakCombo(); mainWindow?.webContents.send('global-modifier-change', buildModifierCombo()); return; }
-    if (key === 'Shift')   { uioHeld.shift = true; clearTimeout(uioModifierReleaseTimer); updatePeakCombo(); mainWindow?.webContents.send('global-modifier-change', buildModifierCombo()); return; }
-    if (key === 'Alt')     { uioHeld.alt = true; clearTimeout(uioModifierReleaseTimer); updatePeakCombo(); mainWindow?.webContents.send('global-modifier-change', buildModifierCombo()); return; }
+    if (key === 'Control') { uioHeld.ctrl = true; clearTimeout(uioModifierReleaseTimer); updatePeakCombo(); safeSend('global-modifier-change', buildModifierCombo()); return; }
+    if (key === 'Shift')   { uioHeld.shift = true; clearTimeout(uioModifierReleaseTimer); updatePeakCombo(); safeSend('global-modifier-change', buildModifierCombo()); return; }
+    if (key === 'Alt')     { uioHeld.alt = true; clearTimeout(uioModifierReleaseTimer); updatePeakCombo(); safeSend('global-modifier-change', buildModifierCombo()); return; }
 
     // Non-modifier key pressed — clear peak tracking since this isn't modifier-only
     uioPeakModifierCombo = '';
     clearTimeout(uioModifierReleaseTimer);
     uioHeldKeys.add(key);
     const combo = buildCombo(key);
-    mainWindow?.webContents.send('global-keydown', combo);
-    mainWindow?.webContents.send('global-combo-update', combo);
+    safeSend('global-keydown', combo);
+    safeSend('global-combo-update', combo);
   });
 
   uiohook.on('keyup', (e) => {
@@ -211,7 +254,7 @@ function setupGlobalHotkeys() {
       if (key === 'Shift') uioHeld.shift = false;
       if (key === 'Alt') uioHeld.alt = false;
 
-      mainWindow?.webContents.send('global-modifier-change', buildModifierCombo());
+      safeSend('global-modifier-change', buildModifierCombo());
 
       // If no non-modifier keys were pressed, schedule a modifier-only finalize
       // Use a short delay so simultaneous releases are batched
@@ -222,8 +265,8 @@ function setupGlobalHotkeys() {
           if (!uioHeld.ctrl && !uioHeld.shift && !uioHeld.alt && uioPeakModifierCombo) {
             const combo = uioPeakModifierCombo;
             uioPeakModifierCombo = '';
-            mainWindow?.webContents.send('global-keydown', combo);
-            mainWindow?.webContents.send('global-modifier-release', combo);
+            safeSend('global-keydown', combo);
+            safeSend('global-modifier-release', combo);
           }
         }, 80); // 80ms window to catch simultaneous releases
       }
@@ -237,8 +280,8 @@ function setupGlobalHotkeys() {
     const btn = MOUSE_BUTTON_MAP[e.button];
     if (!btn) return;
     const combo = buildCombo(btn);
-    mainWindow?.webContents.send('global-mousedown', combo);
-    mainWindow?.webContents.send('global-combo-update', combo);
+    safeSend('global-mousedown', combo);
+    safeSend('global-combo-update', combo);
   });
 
   uiohook.start();
@@ -498,6 +541,8 @@ function loadVmLibrary() {
       GetParameterFloat:   vmLib.func('long __stdcall VBVMR_GetParameterFloat(str, _Out_ float *)'),
       IsParametersDirty:   vmLib.func('long __stdcall VBVMR_IsParametersDirty()'),
       GetVoicemeeterType:  vmLib.func('long __stdcall VBVMR_GetVoicemeeterType(_Out_ long *)'),
+      Input_GetDeviceNumber:  vmLib.func('long __stdcall VBVMR_Input_GetDeviceNumber()'),
+      Input_GetDeviceDescA:   vmLib.func('long __stdcall VBVMR_Input_GetDeviceDescA(long, _Out_ long *, _Out_ str, _Out_ str)'),
     };
     console.log('[VM] Library loaded from:', dllPath);
     return true;
@@ -508,37 +553,22 @@ function loadVmLibrary() {
 }
 
 function connectVoicemeeterRemote() {
-  if (vmConnected) return true;
-  if (!loadVmLibrary()) return false;
-
+  if (vmConnected) return { success: true, loginResult: -2 };
+  if (!loadVmLibrary()) return { success: false, loginResult: -99 };
   try {
     const loginResult = vmFns.Login();
     console.log('[VM] Login result:', loginResult);
-    // 0 = OK (VM running), 1 = OK (VM not running, will launch), -1 = error, -2 = already logged in
-    if (loginResult === -2) {
-      // Already logged in from a previous attempt
-      vmConnected = true;
-      // Drain dirty flag
-      try { vmFns.IsParametersDirty(); } catch(e) {}
-      return true;
-    }
-    if (loginResult !== 0 && loginResult !== 1) {
-      console.log('[VM] Login failed with code:', loginResult);
-      return false;
-    }
-
+    if (loginResult < 0 && loginResult !== -2) return { success: false, loginResult };
     vmConnected = true;
-
-    // CRITICAL: Must call IsParametersDirty() after login to acknowledge initial state.
-    // The API won't apply parameter changes until the dirty flag has been read at least once.
-    // Give VM a moment to initialize its internal state, then drain.
+    if (loginResult === 1) {
+      console.log('[VM] VM not running — calling RunVoicemeeter(1)...');
+      try { vmFns.RunVoicemeeter(1); } catch(e) { console.log('[VM] RunVoicemeeter failed:', e.message); }
+    }
     try { vmFns.IsParametersDirty(); } catch(e) {}
-
-    console.log('[VM] Connected successfully');
-    return true;
+    return { success: true, loginResult };
   } catch (e) {
     console.log('[VM] Connection error:', e.message);
-    return false;
+    return { success: false, loginResult: -99 };
   }
 }
 
@@ -549,72 +579,99 @@ function disconnectVoicemeeterRemote() {
   }
 }
 
-// Wait for VoiceMeeter to be fully ready (parameters readable)
-function waitForVmReady(timeoutMs = 10000) {
+function waitForVmReady(timeoutMs = 30000) {
   return new Promise((resolve) => {
     const start = Date.now();
     const check = () => {
       if (!vmConnected || !vmFns) { resolve(false); return; }
       try {
-        // Try reading a parameter — if VM engine is ready this returns 0
-        const koffi = require('koffi');
-        const buf = Buffer.alloc(4);
-        const result = vmFns.GetParameterFloat('Strip[0].Mute', buf);
-        if (result === 0) {
-          // Drain dirty flag one more time
-          vmFns.IsParametersDirty();
+        const dirty = vmFns.IsParametersDirty();
+        if (dirty >= 0) {
+          console.log(`[VM] Engine ready — IsParametersDirty=${dirty} after ${Date.now() - start}ms`);
           resolve(true);
           return;
         }
+        if ((Date.now() - start) % 5000 < 1100)
+          console.log(`[VM] IsParametersDirty=${dirty}, waiting... (${Date.now() - start}ms)`);
       } catch(e) {}
       if (Date.now() - start > timeoutMs) { resolve(false); return; }
-      setTimeout(check, 500);
+      setTimeout(check, 1000);
     };
-    check();
+    setTimeout(check, 1000);
   });
 }
 
-function vmSetStripDevice(stripIndex, deviceName) {
-  if (!vmConnected || !vmFns) {
-    console.log('[VM] Not connected, cannot set strip device');
-    return false;
-  }
+function vmEnumerateInputDevices() {
+  if (!vmFns) return [];
   try {
-    // Drain any pending dirty state first
-    vmFns.IsParametersDirty();
-
-    const param = `Strip[${stripIndex}].device.wdm`;
-    console.log(`[VM] Setting ${param} = "${deviceName}"`);
-    const result = vmFns.SetParameterStringA(param, deviceName);
-    console.log(`[VM] SetParameterStringA result: ${result}`);
-
-    if (result !== 0) {
-      // result -1 = error, -2 = no server, -3 = unknown param, -5 = structure mismatch
-      console.log(`[VM] SetParameterStringA failed with code ${result}`);
-      return false;
+    const nb = vmFns.Input_GetDeviceNumber();
+    const devices = [];
+    for (let i = 0; i < nb; i++) {
+      try {
+        const typeBuf = [0], nameBuf = ['\0'.repeat(512)], hwIdBuf = ['\0'.repeat(512)];
+        if (vmFns.Input_GetDeviceDescA(i, typeBuf, nameBuf, hwIdBuf) === 0) {
+          const typeStr = { 1: 'mme', 3: 'wdm', 4: 'ks', 5: 'asio' }[typeBuf[0]] || 'unknown';
+          devices.push({ typeStr, name: nameBuf[0].replace(/\0+$/, '') });
+        }
+      } catch(e) {}
     }
+    return devices;
+  } catch(e) { return []; }
+}
 
-    // CRITICAL: Must call IsParametersDirty() after setting parameters
-    // to signal VoiceMeeter to apply the changes
-    let dirty = vmFns.IsParametersDirty();
-    console.log(`[VM] IsParametersDirty after set: ${dirty}`);
-
-    // Poll a few times to ensure VM processes the change
-    let retries = 10;
-    while (retries > 0) {
-      dirty = vmFns.IsParametersDirty();
-      if (dirty === 0) break; // 0 = no more pending changes, all applied
-      retries--;
-      // Small sync delay — we need the change to propagate
-      const end = Date.now() + 50;
-      while (Date.now() < end) {} // busy-wait 50ms (sync context)
-    }
-
-    return true;
-  } catch(e) {
-    console.error('[VM] SetParameterString error:', e);
-    return false;
+function findVmDeviceName(browserLabel) {
+  const devices = vmEnumerateInputDevices();
+  console.log(`[VM] Enumerated ${devices.length} input devices`);
+  for (const d of devices) console.log(`[VM]   [${d.typeStr}] "${d.name}"`);
+  if (!devices.length) return null;
+  const clean = browserLabel.replace(/\s*\([0-9a-fA-F]{4}:[0-9a-fA-F]{4}\)\s*$/, '').trim();
+  const wdm = devices.filter(d => d.typeStr === 'wdm');
+  // Exact
+  let m = wdm.find(d => d.name === clean);
+  if (m) return m;
+  // Substring
+  m = wdm.find(d => clean.includes(d.name) || d.name.includes(clean));
+  if (m) return m;
+  // Simplified
+  const simp = clean.replace(/\s*\(.*?\)\s*/g, ' ').trim().toLowerCase();
+  m = wdm.find(d => { const ds = d.name.replace(/\s*\(.*?\)\s*/g, ' ').trim().toLowerCase(); return simp.includes(ds) || ds.includes(simp); });
+  if (m) return m;
+  // Any type
+  m = devices.find(d => clean.includes(d.name) || d.name.includes(clean));
+  if (m) return m;
+  // Word overlap
+  const words = clean.toLowerCase().split(/\s+/).filter(w => w.length > 2);
+  let best = null, bestScore = 0;
+  for (const d of wdm) {
+    const dw = d.name.toLowerCase().split(/\s+/).filter(w => w.length > 2);
+    const score = words.filter(w => dw.some(x => x.includes(w) || w.includes(x))).length;
+    if (score > bestScore) { bestScore = score; best = d; }
   }
+  return (best && bestScore >= 2) ? best : null;
+}
+
+async function vmSetStripDevice(stripIndex, deviceName) {
+  if (!vmConnected || !vmFns) return false;
+  try {
+    const vmDev = findVmDeviceName(deviceName);
+    const param = vmDev ? `Strip[${stripIndex}].device.${vmDev.typeStr}` : `Strip[${stripIndex}].device.wdm`;
+    const value = vmDev ? vmDev.name : deviceName.replace(/\s*\([0-9a-fA-F]{4}:[0-9a-fA-F]{4}\)\s*$/, '').trim();
+    console.log(`[VM] Setting ${param} = "${value}"`);
+
+    let result = -2;
+    for (let i = 0; i < 30; i++) {
+      try { vmFns.IsParametersDirty(); } catch(e) {}
+      result = vmFns.SetParameterStringA(param, value);
+      if (result === 0) break;
+      if (result !== -2) break;
+      if (i % 5 === 0) console.log(`[VM] Engine not ready (attempt ${i+1}/30)...`);
+      await new Promise(r => setTimeout(r, 1000));
+    }
+    if (result !== 0) { console.log(`[VM] Set strip failed: ${result}`); return false; }
+    for (let i = 0; i < 10; i++) { if (vmFns.IsParametersDirty() === 0) break; await new Promise(r => setTimeout(r, 50)); }
+    console.log('[VM] Strip device set OK');
+    return true;
+  } catch(e) { console.error('[VM] vmSetStripDevice error:', e); return false; }
 }
 
 // Launch VoiceMeeter via the Remote API (preferred) or by spawning the exe
@@ -633,7 +690,7 @@ async function launchVoicemeeterSilent(vmPathOverride) {
         if (loginResult === 0 || loginResult === -2) {
           vmConnected = true;
           // Wait for VM to be ready
-          const ready = await waitForVmReady(10000);
+          const ready = await waitForVmReady(30000);
           console.log('[VM] Ready after RunVoicemeeter:', ready);
           return { success: true, method: 'api' };
         }
@@ -657,36 +714,18 @@ async function launchVoicemeeterSilent(vmPathOverride) {
     let connected = false;
     for (let attempt = 0; attempt < 20; attempt++) {
       await new Promise(r => setTimeout(r, 500));
-      if (connectVoicemeeterRemote()) {
-        connected = true;
-        break;
-      }
+      const result = connectVoicemeeterRemote();
+      if (result.success) { connected = true; break; }
     }
 
     if (!connected) {
       return { success: false, error: 'VoiceMeeter launched but could not connect via API' };
     }
 
-    // Wait for the engine to be ready
-    const ready = await waitForVmReady(10000);
+    const ready = await waitForVmReady(30000);
     console.log('[VM] Ready after exe launch:', ready);
 
-    // Try to hide the window
-    try {
-      const { execSync } = require('child_process');
-      // SW_HIDE = 0 hides the window completely, SW_MINIMIZE = 6 just minimizes
-      const psCmd = `
-        Start-Sleep -Milliseconds 500;
-        $procs = Get-Process | Where-Object { $_.ProcessName -match 'voicemeeter' };
-        foreach ($p in $procs) {
-          if ($p.MainWindowHandle -ne 0) {
-            Add-Type -TypeDefinition 'using System;using System.Runtime.InteropServices;public class Win32{[DllImport("user32.dll")]public static extern bool ShowWindow(IntPtr hWnd,int nCmdShow);}';
-            [Win32]::ShowWindow($p.MainWindowHandle, 0);
-          }
-        }
-      `.replace(/\n/g, ' ');
-      execSync(`powershell -NoProfile -Command "${psCmd}"`, { timeout: 8000, windowsHide: true });
-    } catch(e) { console.log('[VM] Hide window failed (non-critical):', e.message); }
+    hideVoicemeeterWindow();
 
     return { success: true, method: 'exe' };
   } catch(e) {
@@ -697,31 +736,51 @@ async function launchVoicemeeterSilent(vmPathOverride) {
 // Auto-launch and connect VoiceMeeter on app startup
 async function autoSetupVoicemeeter() {
   const cfg = loadConfig();
-
-  // Step 1: Try to connect (VM may already be running)
-  if (connectVoicemeeterRemote()) {
-    console.log('[VM] Already running, connected on startup');
-    await waitForVmReady(5000);
-    // Notify renderer that VM is ready
-    mainWindow?.webContents.send('vm-status', { connected: true, running: true });
+  const conn = connectVoicemeeterRemote();
+  if (conn.success) {
+    const fresh = (conn.loginResult === 1);
+    console.log(`[VM] Connected (loginResult=${conn.loginResult}, fresh=${fresh})`);
+    const ready = await waitForVmReady(fresh ? 30000 : 15000);
+    console.log('[VM] Engine ready:', ready);
+    if (fresh) hideVoicemeeterWindow();
+    safeSend('vm-status', { connected: true, running: true, ready });
     return;
   }
-
-  // Step 2: Auto-launch VoiceMeeter if we can find it
   const vmPath = cfg.voicemeeterPath || findVoicemeeterExe();
   if (vmPath) {
     console.log('[VM] Auto-launching from:', vmPath);
     const result = await launchVoicemeeterSilent(vmPath);
-    console.log('[VM] Auto-launch result:', result);
-    mainWindow?.webContents.send('vm-status', {
-      connected: vmConnected,
-      running: result.success,
-      autoLaunched: true
-    });
+    if (result.success && vmConnected) {
+      const ready = await waitForVmReady(30000);
+      console.log('[VM] Engine ready after auto-launch:', ready);
+    }
+    safeSend('vm-status', { connected: vmConnected, running: result.success, autoLaunched: true });
   } else {
-    console.log('[VM] No VoiceMeeter exe found, skipping auto-launch');
-    mainWindow?.webContents.send('vm-status', { connected: false, running: false });
+    safeSend('vm-status', { connected: false, running: false });
   }
+}
+
+function hideVoicemeeterWindow() {
+  try {
+    const { exec } = require('child_process');
+    // Write a temp .ps1 script to avoid nested quoting issues
+    const tmpScript = path.join(app.getPath('temp'), 'vm_minimize.ps1');
+    fs.writeFileSync(tmpScript, `
+Start-Sleep -Milliseconds 2000
+$procs = Get-Process | Where-Object { $_.ProcessName -match 'voicemeeter' }
+foreach ($p in $procs) {
+  if ($p.MainWindowHandle -ne 0) {
+    Add-Type -TypeDefinition 'using System;using System.Runtime.InteropServices;public class Win32{[DllImport("user32.dll")]public static extern bool ShowWindow(IntPtr hWnd,int nCmdShow);}'
+    [Win32]::ShowWindow($p.MainWindowHandle, 6)
+  }
+}
+`);
+    exec(`powershell -NoProfile -ExecutionPolicy Bypass -File "${tmpScript}"`, { timeout: 10000, windowsHide: true }, (err) => {
+      try { fs.unlinkSync(tmpScript); } catch(e) {}
+      if (err) console.log('[VM] Minimize failed (non-critical):', err.message);
+      else console.log('[VM] Window minimized');
+    });
+  } catch(e) { console.log('[VM] Minimize error:', e.message); }
 }
 
 // Clean up on exit
@@ -730,23 +789,15 @@ app.on('will-quit', () => {
 });
 
 ipcMain.handle('vm-connect', async () => {
-  const ok = connectVoicemeeterRemote();
-  if (ok) {
-    await waitForVmReady(5000);
-    // Drain dirty flag
-    try { vmFns.IsParametersDirty(); } catch(e) {}
-  }
-  return { success: ok };
+  const conn = connectVoicemeeterRemote();
+  if (conn.success) await waitForVmReady(conn.loginResult === 1 ? 30000 : 10000);
+  return { success: conn.success };
 });
 
 ipcMain.handle('vm-set-strip-device', async (_, { stripIndex, deviceName }) => {
-  if (!vmConnected) connectVoicemeeterRemote();
-  if (!vmConnected) return { success: false, error: 'Not connected to Voicemeeter' };
-
-  // Wait for VM to be ready before setting
-  await waitForVmReady(3000);
-
-  const ok = vmSetStripDevice(stripIndex || 0, deviceName);
+  if (!vmConnected) { const c = connectVoicemeeterRemote(); if (!c.success) return { success: false, error: 'Not connected' }; }
+  await waitForVmReady(15000);
+  const ok = await vmSetStripDevice(stripIndex || 0, deviceName);
   return { success: ok, deviceName };
 });
 
@@ -773,4 +824,18 @@ ipcMain.handle('pick-voicemeeter-path', async () => {
 ipcMain.handle('launch-voicemeeter', async (_, vmPath) => {
   const result = await launchVoicemeeterSilent(vmPath);
   return result;
+});
+
+// ── IPC: read audio file as base64 for waveform rendering ──────────────
+ipcMain.handle('read-audio-file', async (_, filePath) => {
+  try {
+    if (!fs.existsSync(filePath)) return { success: false, error: 'File not found' };
+    const data = fs.readFileSync(filePath);
+    const ext = path.extname(filePath).toLowerCase().replace('.', '');
+    const mimeMap = { mp3: 'audio/mpeg', wav: 'audio/wav', ogg: 'audio/ogg', m4a: 'audio/mp4', flac: 'audio/flac', opus: 'audio/opus', aac: 'audio/aac', webm: 'audio/webm' };
+    const mime = mimeMap[ext] || 'audio/mpeg';
+    return { success: true, base64: data.toString('base64'), mime };
+  } catch(e) {
+    return { success: false, error: e.message };
+  }
 });

@@ -16,6 +16,7 @@ contextBridge.exposeInMainWorld('api', {
   onVmStatus: (cb) => ipcRenderer.on('vm-status', (_, status) => cb(status)),
   openExternal: (url) => ipcRenderer.invoke('open-external', url),
   fetchUrlTitle: (url) => ipcRenderer.invoke('fetch-url-title', url),
+  readAudioFile: (filePath) => ipcRenderer.invoke('read-audio-file', filePath),
   winMinimize:  () => ipcRenderer.send('win-minimize'),
   winMaximize:  () => ipcRenderer.send('win-maximize'),
   winClose:     () => ipcRenderer.send('win-close'),
