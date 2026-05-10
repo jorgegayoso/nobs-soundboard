@@ -534,6 +534,10 @@ html, body {
 .bulk-btn.paste:disabled { opacity: 0.3; cursor: not-allowed; }
 .bulk-btn.delete { background: var(--bg-card); color: var(--danger); border: 1px solid var(--danger-dim); }
 .bulk-btn.delete:hover { background: rgba(255,23,68,0.1); }
+.bulk-btn.stop { background: var(--bg-card); color: #ff9800; border: 1px solid #e65100; }
+.bulk-btn.stop:hover { background: rgba(255,152,0,0.1); }
+.bulk-btn.play { background: var(--bg-card); color: var(--accent); border: 1px solid var(--accent-dim); }
+.bulk-btn.play:hover { background: var(--accent-glow); }
 .bulk-btn.cancel-bulk { background: var(--bg-card); color: var(--text-2); border: 1px solid var(--border); }
 .bulk-btn.cancel-bulk:hover { background: var(--bg-hover); color: var(--text-1); }
 .bulk-btn.loop-start { background: var(--bg-card); color: var(--accent); border: 1px solid var(--accent-dim); }
@@ -689,7 +693,7 @@ html, body {
     <div class="bb-spacer"></div>
     <button class="bb-btn guide" id="guideBtn">? Setup Guide</button>
     <div class="bb-spacer"></div>
-    <button class="bb-btn vm-toggle" id="vmAutoStartBtn" title="Toggle VoiceMeeter auto-start on app launch"><span class="toggle-dot"></span>VM Auto</button>
+    <button class="bb-btn vm-toggle" id="vmAutoStartBtn" title="Toggle VoiceMeeter auto-start on app launch"><span class="toggle-dot"></span>VM Autorun</button>
     <button class="bb-btn vm" id="vmPathBtn" title="Set VoiceMeeter .exe location">VM Path</button>
     <button class="bb-btn vm" id="vmLaunchBtn" title="Launch VoiceMeeter">Launch VM</button>
   </div>
@@ -697,6 +701,8 @@ html, body {
 
 <div class="ctx-menu" id="ctxMenu"></div>
 <div id="bulkToolbar">
+  <button class="bulk-btn play" id="bulkPlay" title="Play all selected buttons">Play</button>
+  <button class="bulk-btn stop" id="bulkStop" title="Stop playback of selected buttons">Stop</button>
   <button class="bulk-btn paste" id="bulkPaste" title="Paste copied loop settings to selected buttons">Paste Loop</button>
   <button class="bulk-btn loop-start" id="bulkStartLoop" title="Start looping all selected buttons">Start Loop</button>
   <button class="bulk-btn loop-stop" id="bulkStopLoop" title="Stop looping all selected buttons">Stop Loop</button>
@@ -786,13 +792,17 @@ function getAudioContext(deviceId) {
 
 function stopAll() {
   activeSounds.forEach(s => {
+    // Pause audio elements FIRST before disconnecting nodes
+    if (s.outputAudio) { try { s.outputAudio.pause(); } catch(e) {} }
+    if (s.inputAudio) { try { s.inputAudio.pause(); } catch(e) {} }
     // Disconnect Web Audio nodes to free memory
     if (s.outputSource) { try { s.outputSource.disconnect(); } catch(e) {} }
     if (s.outputGain) { try { s.outputGain.disconnect(); } catch(e) {} }
     if (s.inputSource) { try { s.inputSource.disconnect(); } catch(e) {} }
     if (s.inputGain) { try { s.inputGain.disconnect(); } catch(e) {} }
-    if (s.outputAudio) { s.outputAudio.pause(); s.outputAudio.src = ''; s.outputAudio.load(); }
-    if (s.inputAudio) { s.inputAudio.pause(); s.inputAudio.src = ''; s.inputAudio.load(); }
+    // Kill the audio elements — set currentTime to 0, clear src, force reload
+    if (s.outputAudio) { try { s.outputAudio.currentTime = 0; s.outputAudio.src = ''; s.outputAudio.load(); } catch(e) {} }
+    if (s.inputAudio) { try { s.inputAudio.currentTime = 0; s.inputAudio.src = ''; s.inputAudio.load(); } catch(e) {} }
     if (s.puckEl) s.puckEl.classList.remove('playing');
   });
   activeSounds = [];
@@ -803,6 +813,7 @@ function stopAll() {
   });
   activeLoops = {};
   document.querySelectorAll('.sound-puck.looping').forEach(el => el.classList.remove('looping'));
+  document.querySelectorAll('.sound-puck.playing').forEach(el => el.classList.remove('playing'));
 
   // Close and clear all cached AudioContexts to fully release audio resources
   Object.keys(audioContextCache).forEach(key => {
@@ -1831,6 +1842,23 @@ function bulkDeleteSelected() {
   bulkSelectedIds.forEach(id => stopButton(id));
   config.buttons = config.buttons.filter(b => !bulkSelectedIds.has(b.id));
   saveConfig();
+  exitBulkSelectMode();
+}
+
+function bulkStopSelected() {
+  if (bulkSelectedIds.size === 0) return;
+  bulkSelectedIds.forEach(id => stopButton(id));
+  exitBulkSelectMode();
+}
+
+function bulkPlaySelected() {
+  if (bulkSelectedIds.size === 0) return;
+  bulkSelectedIds.forEach(id => {
+    const btn = config.buttons.find(b => b.id === id);
+    if (!btn) return;
+    const puckEl = document.querySelector(`.sound-puck[data-btn-id="${id}"]`);
+    playSound(btn, puckEl);
+  });
   exitBulkSelectMode();
 }
 
@@ -3399,9 +3427,11 @@ async function init() {
   setupSidebarResize();
 
   // Bulk select toolbar
+  document.getElementById('bulkPlay').addEventListener('click', bulkPlaySelected);
   document.getElementById('bulkPaste').addEventListener('click', bulkPasteLoop);
   document.getElementById('bulkStartLoop').addEventListener('click', bulkStartLoop);
   document.getElementById('bulkStopLoop').addEventListener('click', bulkStopLoop);
+  document.getElementById('bulkStop').addEventListener('click', bulkStopSelected);
   document.getElementById('bulkDelete').addEventListener('click', bulkDeleteSelected);
   document.getElementById('bulkCancel').addEventListener('click', exitBulkSelectMode);
 

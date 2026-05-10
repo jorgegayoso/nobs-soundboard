@@ -55,6 +55,7 @@ function loadConfig() {
 
 function saveConfig(cfg) {
   try {
+    if ('vmAutoStart' in cfg) console.log(`[Config] Saving vmAutoStart: ${cfg.vmAutoStart}`);
     fs.writeFileSync(CONFIG_PATH, JSON.stringify(cfg, null, 2));
   } catch (e) { console.error('Config save error:', e); }
 }
@@ -748,8 +749,19 @@ async function launchVoicemeeterSilent(vmPathOverride) {
 // Auto-launch and connect VoiceMeeter on app startup
 async function autoSetupVoicemeeter() {
   const cfg = loadConfig();
-  // If vmAutoStart is explicitly false, skip auto-launch but still try to connect if VM is already running
-  const autoStart = cfg.vmAutoStart !== false; // default true for backwards compat
+  console.log(`[VM] Config file: ${CONFIG_PATH}`);
+  console.log(`[VM] vmAutoStart in config: ${JSON.stringify(cfg.vmAutoStart)} (type: ${typeof cfg.vmAutoStart})`);
+
+  // Only auto-start if vmAutoStart is explicitly true or undefined (backwards compat)
+  // If the user has toggled it off, cfg.vmAutoStart will be exactly false
+  if (cfg.vmAutoStart === false) {
+    console.log('[VM] Auto-start is OFF, skipping all VM setup');
+    safeSend('vm-status', { connected: false, running: false, autoStartDisabled: true });
+    return;
+  }
+
+  console.log('[VM] Auto-start is ON, proceeding with VM setup');
+
   const conn = connectVoicemeeterRemote();
   if (conn.success) {
     const fresh = (conn.loginResult === 1);
@@ -758,11 +770,6 @@ async function autoSetupVoicemeeter() {
     console.log('[VM] Engine ready:', ready);
     if (fresh) hideVoicemeeterWindow();
     safeSend('vm-status', { connected: true, running: true, ready });
-    return;
-  }
-  if (!autoStart) {
-    console.log('[VM] Auto-start disabled, skipping launch');
-    safeSend('vm-status', { connected: false, running: false, autoStartDisabled: true });
     return;
   }
   const vmPath = cfg.voicemeeterPath || findVoicemeeterExe();
@@ -808,13 +815,25 @@ app.on('will-quit', () => {
 });
 
 ipcMain.handle('vm-connect', async () => {
+  const cfg = loadConfig();
+  if (cfg.vmAutoStart === false) {
+    console.log('[VM] vm-connect called but auto-start is OFF, skipping');
+    return { success: false, autoStartDisabled: true };
+  }
   const conn = connectVoicemeeterRemote();
   if (conn.success) await waitForVmReady(conn.loginResult === 1 ? 30000 : 10000);
   return { success: conn.success };
 });
 
 ipcMain.handle('vm-set-strip-device', async (_, { stripIndex, deviceName }) => {
-  if (!vmConnected) { const c = connectVoicemeeterRemote(); if (!c.success) return { success: false, error: 'Not connected' }; }
+  if (!vmConnected) {
+    const cfg = loadConfig();
+    if (cfg.vmAutoStart === false) {
+      return { success: false, error: 'VM auto-start disabled' };
+    }
+    const c = connectVoicemeeterRemote();
+    if (!c.success) return { success: false, error: 'Not connected' };
+  }
   await waitForVmReady(15000);
   const ok = await vmSetStripDevice(stripIndex || 0, deviceName);
   return { success: ok, deviceName };
