@@ -1,9 +1,23 @@
-const { app, BrowserWindow, ipcMain, dialog, Tray, Menu, nativeImage, shell } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, Tray, Menu, nativeImage, shell, net } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const { spawn } = require('child_process');
 const https = require('https');
 const http = require('http');
+const { pathToFileURL } = require('url');
+
+// ── Register custom protocol scheme BEFORE app is ready ─────────────────
+const { protocol } = require('electron');
+protocol.registerSchemesAsPrivileged([
+  {
+    scheme: 'local-audio',
+    privileges: {
+      secure: true,
+      supportFetchAPI: true,
+      stream: true,
+    }
+  }
+]);
 
 // ── Paths ───────────────────────────────────────────────────────────────
 const APP_ROOT = app.isPackaged
@@ -130,7 +144,6 @@ function createTray() {
 app.whenReady().then(() => {
   // Register a custom protocol to serve local audio files to the renderer.
   // This avoids file:// CORS issues and base64 IPC memory bombs.
-  const { protocol } = require('electron');
   protocol.handle('local-audio', (request) => {
     // URL format: local-audio://read/<encoded-path>
     try {
@@ -141,11 +154,10 @@ app.whenReady().then(() => {
       if (!fs.existsSync(cleanPath)) {
         return new Response('Not found', { status: 404 });
       }
-      const ext = path.extname(cleanPath).toLowerCase().slice(1);
-      const mimeMap = { mp3: 'audio/mpeg', wav: 'audio/wav', ogg: 'audio/ogg', m4a: 'audio/mp4', flac: 'audio/flac', opus: 'audio/opus', aac: 'audio/aac', webm: 'audio/webm' };
-      const mime = mimeMap[ext] || 'application/octet-stream';
-      const data = fs.readFileSync(cleanPath);
-      return new Response(data, { headers: { 'Content-Type': mime } });
+      // Use net.fetch with pathToFileURL — the Electron-recommended way.
+      // This correctly handles Content-Type, range requests, and memory
+      // without the Buffer/V8 memory cage crashes that raw fs.readFileSync causes.
+      return net.fetch(pathToFileURL(cleanPath).toString());
     } catch(e) {
       return new Response(e.message, { status: 500 });
     }
@@ -736,6 +748,8 @@ async function launchVoicemeeterSilent(vmPathOverride) {
 // Auto-launch and connect VoiceMeeter on app startup
 async function autoSetupVoicemeeter() {
   const cfg = loadConfig();
+  // If vmAutoStart is explicitly false, skip auto-launch but still try to connect if VM is already running
+  const autoStart = cfg.vmAutoStart !== false; // default true for backwards compat
   const conn = connectVoicemeeterRemote();
   if (conn.success) {
     const fresh = (conn.loginResult === 1);
@@ -744,6 +758,11 @@ async function autoSetupVoicemeeter() {
     console.log('[VM] Engine ready:', ready);
     if (fresh) hideVoicemeeterWindow();
     safeSend('vm-status', { connected: true, running: true, ready });
+    return;
+  }
+  if (!autoStart) {
+    console.log('[VM] Auto-start disabled, skipping launch');
+    safeSend('vm-status', { connected: false, running: false, autoStartDisabled: true });
     return;
   }
   const vmPath = cfg.voicemeeterPath || findVoicemeeterExe();

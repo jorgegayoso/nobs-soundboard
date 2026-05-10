@@ -184,6 +184,11 @@ html, body {
 .bb-btn.secondary:hover { background: var(--bg-hover); border-color: var(--accent); color: var(--accent); }
 .bb-btn.vm { background: var(--bg-card); color: var(--text-2); border: 1px solid var(--border); font-size: 10px; padding: 5px 10px; }
 .bb-btn.vm:hover { background: var(--bg-hover); border-color: #ff9800; color: #ff9800; }
+.bb-btn.vm-toggle { background: var(--bg-card); color: var(--text-3); border: 1px solid var(--border); font-size: 10px; padding: 5px 10px; cursor: pointer; transition: all 0.2s; }
+.bb-btn.vm-toggle:hover { background: var(--bg-hover); border-color: #ff9800; color: #ff9800; }
+.bb-btn.vm-toggle.active { background: rgba(255,152,0,0.12); color: #ff9800; border-color: #ff9800; }
+.bb-btn.vm-toggle .toggle-dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; margin-right: 4px; background: var(--text-3); transition: background 0.2s; }
+.bb-btn.vm-toggle.active .toggle-dot { background: #ff9800; box-shadow: 0 0 6px rgba(255,152,0,0.5); }
 .bb-btn.guide { background: var(--bg-card); color: var(--accent); border: 1px solid var(--accent-dim); font-size: 10px; padding: 5px 12px; }
 .bb-btn.guide:hover { background: var(--accent-glow); border-color: var(--accent); }
 .bb-btn.guide.blink {
@@ -684,6 +689,7 @@ html, body {
     <div class="bb-spacer"></div>
     <button class="bb-btn guide" id="guideBtn">? Setup Guide</button>
     <div class="bb-spacer"></div>
+    <button class="bb-btn vm-toggle" id="vmAutoStartBtn" title="Toggle VoiceMeeter auto-start on app launch"><span class="toggle-dot"></span>VM Auto</button>
     <button class="bb-btn vm" id="vmPathBtn" title="Set VoiceMeeter .exe location">VM Path</button>
     <button class="bb-btn vm" id="vmLaunchBtn" title="Launch VoiceMeeter">Launch VM</button>
   </div>
@@ -2548,17 +2554,43 @@ function openTrimModal(btn) {
   async function loadAudio() {
     let audioData;
     try {
-      // Use custom protocol registered in main process — avoids CORS and base64 IPC issues
-      const encodedPath = encodeURIComponent(resolvedPath);
-      const url = `local-audio://read/${encodedPath}`;
-      const resp = await fetch(url);
-      if (!resp.ok) throw new Error(`Failed to load audio: ${resp.status} ${resp.statusText}`);
-      audioData = await resp.arrayBuffer();
+      // Try custom protocol first (avoids base64 IPC overhead)
+      try {
+        const encodedPath = encodeURIComponent(resolvedPath);
+        const url = `local-audio://read/${encodedPath}`;
+        const resp = await fetch(url);
+        if (!resp.ok) throw new Error(`Protocol fetch failed: ${resp.status}`);
+        audioData = await resp.arrayBuffer();
+      } catch(protocolErr) {
+        console.warn('Protocol fetch failed, falling back to IPC:', protocolErr.message);
+        // Fallback: read via IPC as base64
+        if (window.api && window.api.readAudioFile) {
+          const result = await window.api.readAudioFile(resolvedPath);
+          if (!result.success) throw new Error(result.error || 'IPC read failed');
+          const binary = atob(result.base64);
+          const bytes = new Uint8Array(binary.length);
+          for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+          audioData = bytes.buffer;
+        } else {
+          throw protocolErr;
+        }
+      }
 
-      // Decode audio using standard AudioContext
-      const actx = new (window.AudioContext || window.webkitAudioContext)();
-      const decoded = await actx.decodeAudioData(audioData);
-      actx.close();
+      // Decode audio — use OfflineAudioContext to avoid renderer crash on
+      // some Electron versions (issue #42271) where decodeAudioData on a
+      // standard AudioContext can cause access violations.
+      let decoded;
+      try {
+        // First try with a temporary standard AudioContext
+        const actx = new (window.AudioContext || window.webkitAudioContext)();
+        decoded = await actx.decodeAudioData(audioData.slice(0));
+        actx.close();
+      } catch(decodeErr) {
+        console.warn('Standard decode failed, trying OfflineAudioContext:', decodeErr.message);
+        // Fallback: use OfflineAudioContext which is less likely to crash
+        const offCtx = new OfflineAudioContext(1, 1, 44100);
+        decoded = await offCtx.decodeAudioData(audioData.slice(0));
+      }
 
       audioDuration = decoded.duration;
       if (trimEndSec <= 0 || trimEndSec > audioDuration) trimEndSec = audioDuration;
@@ -3330,6 +3362,15 @@ async function init() {
   });
 
   // VoiceMeeter buttons
+  // VM Auto Start toggle
+  const vmAutoBtn = document.getElementById('vmAutoStartBtn');
+  if (config.vmAutoStart !== false) vmAutoBtn.classList.add('active');
+  vmAutoBtn.addEventListener('click', () => {
+    const isActive = vmAutoBtn.classList.toggle('active');
+    config.vmAutoStart = isActive;
+    saveConfig();
+  });
+
   document.getElementById('vmPathBtn').addEventListener('click', async () => {
     if (hasElectron) {
       const path = await window.api.pickVoicemeeterPath();
