@@ -121,18 +121,6 @@ html, body {
 }
 .stop-btn:hover { background: var(--danger-dim); }
 
-.rec-toggle {
-  background: var(--bg-card); border: 1px solid var(--border); color: var(--text-3);
-  font-family: var(--font-mono); font-weight: 700; font-size: 10px;
-  padding: 5px 10px; border-radius: 5px; cursor: pointer;
-  transition: all 0.15s; white-space: nowrap;
-}
-.rec-toggle:hover { background: var(--bg-hover); color: var(--text-1); }
-.rec-toggle.active {
-  background: var(--accent); color: #000; border-color: var(--accent);
-}
-.rec-toggle.active:hover { background: var(--accent-dim); }
-
 /* ═══ SIDEBAR ═══ */
 #sidebar {
   grid-area: sidebar; background: var(--bg-surface);
@@ -667,9 +655,6 @@ html, body {
       <label>Input</label>
       <select class="device-select" id="inputSelect" title="Select your microphone — Voicemeeter Strip 1 will be set to this device"><option value="">None</option></select>
     </div>
-    <div class="toggle-group" style="display:flex;align-items:center;gap:6px;margin:0 4px;">
-      <button class="rec-toggle" id="recToggle" title="Route sounds to Voicemeeter Input (virtual cable)">🔇 Rec</button>
-    </div>
     <div class="vol-group">
       <label>Vol</label>
       <input type="range" class="vol-slider" id="volumeSlider" min="0" max="100" value="80">
@@ -693,7 +678,7 @@ html, body {
     <div class="bb-spacer"></div>
     <button class="bb-btn guide" id="guideBtn">? Setup Guide</button>
     <div class="bb-spacer"></div>
-    <button class="bb-btn vm-toggle" id="vmAutoStartBtn" title="Toggle VoiceMeeter auto-start on app launch"><span class="toggle-dot"></span>VM Autorun</button>
+    <button class="bb-btn vm-toggle" id="vmAutoStartBtn" title="Toggle VoiceMeeter auto-start on app launch"><span class="toggle-dot"></span>VM Auto</button>
     <button class="bb-btn vm" id="vmPathBtn" title="Set VoiceMeeter .exe location">VM Path</button>
     <button class="bb-btn vm" id="vmLaunchBtn" title="Launch VoiceMeeter">Launch VM</button>
   </div>
@@ -1065,7 +1050,7 @@ async function playSound(btn, puckEl) {
 // DEVICES — live refresh
 // ═══════════════════════════════════════════════════════════════════════
 let virtualCableDeviceId = null; // auto-detected VoiceMeeter/CABLE output device for routing sounds
-let recToInput = false; // whether sounds should route to the virtual cable
+let recToInput = true; // always route sounds to virtual cable when detected
 
 async function refreshDevices() {
   try { await navigator.mediaDevices.getUserMedia({ audio: true }); } catch(e){}
@@ -1117,24 +1102,6 @@ async function refreshDevices() {
   console.log('Audio outputs:', outputs.map(d => d.label));
   console.log('Virtual cable detected:', vmCable ? vmCable.label : 'NONE');
 
-  // Update rec toggle state
-  updateRecToggle();
-}
-
-function updateRecToggle() {
-  const btn = document.getElementById('recToggle');
-  if (recToInput && virtualCableDeviceId) {
-    btn.classList.add('active');
-    btn.textContent = '🔊 Rec';
-  } else {
-    btn.classList.remove('active');
-    btn.textContent = '🔇 Rec';
-  }
-  if (!virtualCableDeviceId) {
-    btn.title = 'No VoiceMeeter/CABLE virtual device detected';
-  } else {
-    btn.title = recToInput ? 'Sounds are being routed to VoiceMeeter Input' : 'Click to route sounds to VoiceMeeter Input';
-  }
 }
 
 navigator.mediaDevices?.addEventListener('devicechange', () => refreshDevices());
@@ -3202,7 +3169,7 @@ function openGuideModal() {
           <h3>3. Configure Nob's Soundboard</h3>
           <div class="step">
             <div class="step-num">3</div>
-            <div class="step-text">In this app's top bar, set <strong>Input</strong> to your microphone, then click the <strong>Rec</strong> button to enable routing sounds through VoiceMeeter. The app auto-detects VoiceMeeter Input.</div>
+            <div class="step-text">In this app's top bar, set <strong>Input</strong> to your microphone. The app auto-detects VoiceMeeter Input and routes sounds through it automatically.</div>
           </div>
           <div class="step">
             <div class="step-num">4</div>
@@ -3283,17 +3250,12 @@ async function init() {
   if (config.inputDeviceId) inSel.value = config.inputDeviceId;
   inputDeviceId = inSel.value || null;
 
-  // Restore recToInput state (default ON for first startup)
-  recToInput = config.recToInput ?? true;
-  updateRecToggle();
-
   // Listen for VoiceMeeter status updates from main process (e.g. after auto-launch)
   if (hasElectron && window.api.onVmStatus) {
     window.api.onVmStatus(async (status) => {
       console.log('[renderer] VM status update:', status);
       // Re-scan devices — VM may have created new virtual audio devices
       await refreshDevices();
-      updateRecToggle();
       // Auto-set strip device if we have an input selected
       if (status.connected && inSel.value) {
         const selectedOption = inSel.options[inSel.selectedIndex];
@@ -3318,17 +3280,6 @@ async function init() {
       }
     } catch(e) { /* VM not available, that's fine */ }
   }
-
-  document.getElementById('recToggle').addEventListener('click', () => {
-    if (!virtualCableDeviceId) {
-      alert('No VoiceMeeter or CABLE virtual device detected. Make sure VoiceMeeter is running.');
-      return;
-    }
-    recToInput = !recToInput;
-    config.recToInput = recToInput;
-    saveConfig();
-    updateRecToggle();
-  });
 
   document.getElementById('volumeSlider').addEventListener('input', (e) => {
     config.volume = parseInt(e.target.value);

@@ -27,12 +27,152 @@ const APP_ROOT = app.isPackaged
 const USER_DATA = path.join(app.getPath('appData'), 'Nob', 'soundboard');
 const SOUNDS_DIR = path.join(USER_DATA, 'sounds');
 const CONFIG_PATH = path.join(USER_DATA, 'soundboard-config.json');
+const TOOLS_DIR = path.join(USER_DATA, 'tools');
 const ICON_PATH = path.join(__dirname, 'icon.png');
 const TRAY_ICON_PATH = path.join(__dirname, 'tray-icon.png');
+
+// Redirect Electron's session data (cache, localStorage, etc.) into our
+// consolidated Nob/soundboard folder instead of a separate "nobs-soundboard" folder
+app.setPath('userData', path.join(USER_DATA, 'runtime'));
 
 function ensureDirs() {
   if (!fs.existsSync(USER_DATA)) fs.mkdirSync(USER_DATA, { recursive: true });
   if (!fs.existsSync(SOUNDS_DIR)) fs.mkdirSync(SOUNDS_DIR, { recursive: true });
+  if (!fs.existsSync(TOOLS_DIR)) fs.mkdirSync(TOOLS_DIR, { recursive: true });
+}
+
+// ── Tool paths (yt-dlp & ffmpeg) ────────────────────────────────────────
+function isOnPath(name) {
+  try {
+    const cmd = process.platform === 'win32' ? `where ${name}` : `which ${name}`;
+    const { execSync } = require('child_process');
+    const result = execSync(cmd, { windowsHide: true, timeout: 5000, encoding: 'utf-8' }).trim();
+    if (result) {
+      console.log(`[Tools] ${name} found on PATH: ${result.split(/\r?\n/)[0]}`);
+      return result.split(/\r?\n/)[0]; // return first match
+    }
+  } catch(e) { /* not found */ }
+  return null;
+}
+
+function getToolPath(name) {
+  const ext = process.platform === 'win32' ? '.exe' : '';
+  // 1. Check system PATH first (user's own install takes priority)
+  const pathResult = isOnPath(name);
+  if (pathResult) return pathResult;
+  // 2. Check bundled tools dir (auto-downloaded)
+  const toolsPath = path.join(TOOLS_DIR, name + ext);
+  if (fs.existsSync(toolsPath)) return toolsPath;
+  // 3. Check extraResources (bundled with installer)
+  const resourcesPath = path.join(process.resourcesPath || APP_ROOT, 'tools', name + ext);
+  if (fs.existsSync(resourcesPath)) return resourcesPath;
+  // 4. Fall back to bare name (will fail at spawn time if not found)
+  return name;
+}
+
+function downloadFile(url, dest) {
+  return new Promise((resolve, reject) => {
+    const file = fs.createWriteStream(dest);
+    const get = url.startsWith('https') ? https : http;
+    const request = (reqUrl) => {
+      get.get(reqUrl, (res) => {
+        if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
+          const redirect = res.headers.location.startsWith('http')
+            ? res.headers.location
+            : new URL(res.headers.location, reqUrl).toString();
+          request(redirect);
+          return;
+        }
+        if (res.statusCode !== 200) {
+          file.close();
+          fs.unlinkSync(dest);
+          reject(new Error(`HTTP ${res.statusCode}`));
+          return;
+        }
+        res.pipe(file);
+        file.on('finish', () => { file.close(() => resolve(dest)); });
+      }).on('error', (err) => {
+        file.close();
+        if (fs.existsSync(dest)) fs.unlinkSync(dest);
+        reject(err);
+      });
+    };
+    request(url);
+  });
+}
+
+async function ensureTools() {
+  const ext = process.platform === 'win32' ? '.exe' : '';
+  const ytdlpLocal = path.join(TOOLS_DIR, 'yt-dlp' + ext);
+  const ffmpegLocal = path.join(TOOLS_DIR, 'ffmpeg' + ext);
+
+  const downloads = [];
+
+  // Skip download if already on PATH or already in tools dir
+  const hasYtdlp = isOnPath('yt-dlp') || fs.existsSync(ytdlpLocal);
+  const hasFfmpeg = isOnPath('ffmpeg') || fs.existsSync(ffmpegLocal);
+
+  if (!hasYtdlp) {
+    console.log('[Tools] yt-dlp not found on PATH or locally, downloading...');
+    const ytdlpUrl = process.platform === 'win32'
+      ? 'https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe'
+      : 'https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp';
+    downloads.push(
+      downloadFile(ytdlpUrl, ytdlpLocal)
+        .then(() => {
+          if (process.platform !== 'win32') fs.chmodSync(ytdlpLocal, 0o755);
+          console.log('[Tools] yt-dlp downloaded');
+        })
+        .catch(e => console.error('[Tools] yt-dlp download failed:', e.message))
+    );
+  } else {
+    console.log('[Tools] yt-dlp already available, skipping download');
+  }
+
+  if (!hasFfmpeg) {
+    console.log('[Tools] ffmpeg not found on PATH or locally, downloading...');
+    const ffmpegUrl = process.platform === 'win32'
+      ? 'https://github.com/yt-dlp/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-gpl.zip'
+      : null;
+    if (ffmpegUrl) {
+      downloads.push(
+        (async () => {
+          try {
+            const zipPath = path.join(TOOLS_DIR, 'ffmpeg-temp.zip');
+            await downloadFile(ffmpegUrl, zipPath);
+            const { execSync } = require('child_process');
+            const extractDir = path.join(TOOLS_DIR, 'ffmpeg-extract');
+            execSync(`powershell -Command "Expand-Archive -Path '${zipPath}' -DestinationPath '${extractDir}' -Force"`, { windowsHide: true, timeout: 120000 });
+            const findExe = (dir) => {
+              for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+                const full = path.join(dir, entry.name);
+                if (entry.isDirectory()) { const found = findExe(full); if (found) return found; }
+                else if (entry.name.toLowerCase() === 'ffmpeg.exe') return full;
+              }
+              return null;
+            };
+            const exePath = findExe(extractDir);
+            if (exePath) {
+              fs.copyFileSync(exePath, ffmpegLocal);
+              console.log('[Tools] ffmpeg extracted');
+            }
+            try { fs.rmSync(extractDir, { recursive: true, force: true }); } catch(e) {}
+            try { fs.unlinkSync(zipPath); } catch(e) {}
+          } catch(e) {
+            console.error('[Tools] ffmpeg download failed:', e.message);
+          }
+        })()
+      );
+    }
+  } else {
+    console.log('[Tools] ffmpeg already available, skipping download');
+  }
+
+  if (downloads.length > 0) {
+    safeSend('tools-status', { downloading: true });
+    await Promise.allSettled(downloads);
+    safeSend('tools-status', { downloading: false, ytdlp: hasYtdlp || fs.existsSync(ytdlpLocal), ffmpeg: hasFfmpeg || fs.existsSync(ffmpegLocal) });
+  }
 }
 
 // ── Config ──────────────────────────────────────────────────────────────
@@ -85,6 +225,7 @@ function createWindow() {
   // Auto-setup VoiceMeeter once the renderer is ready
   mainWindow.webContents.on('did-finish-load', () => {
     autoSetupVoicemeeter();
+    ensureTools();
   });
 
   // Recover from renderer crashes
@@ -165,6 +306,24 @@ app.whenReady().then(() => {
   });
 
   ensureDirs();
+
+  // Pick up VoiceMeeter install path hint from NSIS installer
+  const vmHintFile = path.join(USER_DATA, 'vm-install-path.txt');
+  if (fs.existsSync(vmHintFile)) {
+    try {
+      const vmPath = fs.readFileSync(vmHintFile, 'utf-8').trim();
+      if (vmPath && fs.existsSync(vmPath)) {
+        const cfg = loadConfig();
+        if (!cfg.voicemeeterPath) {
+          cfg.voicemeeterPath = vmPath;
+          saveConfig(cfg);
+          console.log('[VM] Set voicemeeterPath from installer hint:', vmPath);
+        }
+      }
+      fs.unlinkSync(vmHintFile);
+    } catch(e) { console.warn('[VM] Hint file error:', e.message); }
+  }
+
   createWindow();
   createTray();
   setupGlobalHotkeys();
@@ -420,8 +579,12 @@ ipcMain.handle('download-url', async (_, { url, categoryName, fileName }) => {
   const outTemplate = path.join(catDir, safeName + '.%(ext)s');
 
   return new Promise((resolve) => {
+    const ytdlpBin = getToolPath('yt-dlp');
+    const ffmpegBin = getToolPath('ffmpeg');
+    const ffmpegDir = path.dirname(ffmpegBin);
+
     const args = [
-      'yt-dlp',
+      `"${ytdlpBin}"`,
       '-x',
       '--audio-format', 'mp3',
       '--audio-quality', '5',
@@ -429,12 +592,17 @@ ipcMain.handle('download-url', async (_, { url, categoryName, fileName }) => {
       '--no-playlist',
       '--no-warnings',
       '--force-overwrites',
-      `"${url}"`
-    ].join(' ');
+    ];
+    // Point yt-dlp to our bundled ffmpeg if it exists as a file (not just on PATH)
+    if (ffmpegBin !== 'ffmpeg' && fs.existsSync(ffmpegBin)) {
+      args.push('--ffmpeg-location', `"${ffmpegDir}"`);
+    }
+    args.push(`"${url}"`);
+    const cmd = args.join(' ');
 
-    console.log('[yt-dlp] Running:', args);
+    console.log('[yt-dlp] Running:', cmd);
 
-    const proc = spawn(args, [], { shell: true, cwd: catDir, windowsHide: true });
+    const proc = spawn(cmd, [], { shell: true, cwd: catDir, windowsHide: true });
 
     let stdoutBuf = '', stderrBuf = '';
     proc.stdout.on('data', d => { stdoutBuf += d.toString(); });
@@ -481,6 +649,22 @@ ipcMain.handle('download-url', async (_, { url, categoryName, fileName }) => {
 });
 
 ipcMain.handle('get-sounds-dir', () => SOUNDS_DIR);
+ipcMain.handle('get-tools-status', () => {
+  const ext = process.platform === 'win32' ? '.exe' : '';
+  return {
+    ytdlp: fs.existsSync(path.join(TOOLS_DIR, 'yt-dlp' + ext)),
+    ffmpeg: fs.existsSync(path.join(TOOLS_DIR, 'ffmpeg' + ext)),
+    toolsDir: TOOLS_DIR
+  };
+});
+ipcMain.handle('redownload-tools', async () => {
+  // Force re-download by deleting existing binaries
+  const ext = process.platform === 'win32' ? '.exe' : '';
+  try { fs.unlinkSync(path.join(TOOLS_DIR, 'yt-dlp' + ext)); } catch(e) {}
+  try { fs.unlinkSync(path.join(TOOLS_DIR, 'ffmpeg' + ext)); } catch(e) {}
+  await ensureTools();
+  return { success: true };
+});
 
 // ── IPC: VoiceMeeter ───────────────────────────────────────────────────
 
