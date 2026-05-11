@@ -4,6 +4,8 @@ A dark, neon-styled desktop soundboard that plays audio through a virtual audio 
 
 Built with Electron. Runs on Windows, with experimental macOS/Linux support.
 
+![alt text](https://github.com/jorgegayoso/nobs-soundboard/raw/main/art/view.png "Nob's Soundboard")
+
 ## Features
 
 - Dark industrial-neon UI with colored 3D puck buttons and glow animations
